@@ -35,16 +35,29 @@ def _get_symbol_config(symbol: str) -> Dict:
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """计算技术指标 - 增强版（包含 ATR、EMA、多周期 RSI、布林带、成交量比等）。"""
     try:
-        # 移动平均线 (SMA)
-        df["sma_5"] = df["close"].rolling(window=5, min_periods=1).mean()
-        df["sma_20"] = df["close"].rolling(window=20, min_periods=1).mean()
-        df["sma_50"] = df["close"].rolling(window=50, min_periods=1).mean()
+        typical_price = (df["high"] + df["low"] + df["close"]) / 3
+        volume = df["volume"]
 
-        # 指数移动平均线 (EMA)
-        df["ema_12"] = df["close"].ewm(span=12, adjust=False).mean()
-        df["ema_20"] = df["close"].ewm(span=20, adjust=False).mean()
-        df["ema_26"] = df["close"].ewm(span=26, adjust=False).mean()
-        df["ema_50"] = df["close"].ewm(span=50, adjust=False).mean()
+        # 成交量加权移动平均 (VWMA)
+        def _vwma(window: int) -> pd.Series:
+            volume_sum = volume.rolling(window=window, min_periods=1).sum()
+            weighted_price = (typical_price * volume).rolling(window=window, min_periods=1).sum()
+            return weighted_price / volume_sum.mask(volume_sum == 0)
+
+        df["sma_5"] = _vwma(5)
+        df["sma_20"] = _vwma(20)
+        df["sma_50"] = _vwma(50)
+
+        # 成交量加权指数移动平均 (VWEMA)
+        def _vwema(span: int) -> pd.Series:
+            volume_ewm = volume.ewm(span=span, adjust=False).mean()
+            weighted_price_ewm = (typical_price * volume).ewm(span=span, adjust=False).mean()
+            return weighted_price_ewm / volume_ewm.mask(volume_ewm == 0)
+
+        df["ema_12"] = _vwema(12)
+        df["ema_20"] = _vwema(20)
+        df["ema_26"] = _vwema(26)
+        df["ema_50"] = _vwema(50)
 
         # MACD
         df["macd"] = df["ema_12"] - df["ema_26"]

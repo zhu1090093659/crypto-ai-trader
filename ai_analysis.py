@@ -290,7 +290,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
             model=AI_MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
             stream=False,
-            temperature=0.1,
+            temperature=0.,
             timeout=30.0,
         )
         print("✓ API调用成功")

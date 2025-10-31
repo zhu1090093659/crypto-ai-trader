@@ -66,19 +66,19 @@ ENABLED_MODELS = [m.strip().lower() for m in os.getenv("ENABLED_MODELS", "deepse
 
 # =============== 交易对配置 ===============
 TRADE_CONFIGS: Dict[str, Dict] = {
-    # "BTC/USDT:USDT": {
-    #     "display": "BTC-USDT",
-    #     "amount": 0.0001,
-    #     "leverage": 2,
-    #     "leverage_min": 1,
-    #     "leverage_max": 3,
-    #     "leverage_default": 2,
-    #     "leverage_step": 1,
-    #     "timeframe": "5m",
-    #     "test_mode": False,
-    #     "data_points": 96,
-    #     "analysis_periods": {"short_term": 20, "medium_term": 50, "long_term": 96},
-    # },
+    "BTC/USDT:USDT": {
+        "display": "BTC-USDT",
+        "amount": 0.0001,
+        "leverage": 2,
+        "leverage_min": 1,
+        "leverage_max": 3,
+        "leverage_default": 2,
+        "leverage_step": 1,
+        "timeframe": "5m",
+        "test_mode": False,
+        "data_points": 96,
+        "analysis_periods": {"short_term": 20, "medium_term": 50, "long_term": 96},
+    },
     "ETH/USDT:USDT": {
         "display": "ETH-USDT",
         "amount": 0.001,

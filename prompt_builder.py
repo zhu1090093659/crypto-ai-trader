@@ -361,9 +361,9 @@ def build_professional_prompt(
         "  ⚠️ 重要: 以下所有时间序列数据按 最旧→最新 排列\n",
         "  【短期序列】最近20周期 = 100分钟 (最旧→最新)\n",
         "  价格 (USDT):\n" + format_sequence(prices, decimals=2),
-        "\n  SMA5周期均线:\n" + format_sequence(sma5, decimals=2),
-        "\n  SMA20周期均线:\n" + format_sequence(sma20, decimals=2),
-        "\n  EMA20周期均线:\n" + format_sequence(ema20, decimals=2),
+        "\n  VWMA5（成交量加权均线，基于典型价）:\n" + format_sequence(sma5, decimals=2),
+        "\n  VWMA20（成交量加权均线，基于典型价）:\n" + format_sequence(sma20, decimals=2),
+        "\n  VWEMA20（成交量加权指数均线，基于典型价）:\n" + format_sequence(ema20, decimals=2),
         "\n  RSI (14周期):\n" + format_sequence(rsi, decimals=2),
         "\n  RSI (7周期,更敏感):\n" + format_sequence(rsi_7, decimals=2),
         "\n  MACD线:\n" + format_sequence(macd, decimals=2),
@@ -382,9 +382,9 @@ def build_professional_prompt(
         "  \n  技术指标详情:\n"
         f"  - 短期趋势: {price_data['trend_analysis'].get('short_term', 'N/A')}\n"
         f"  - 中期趋势: {price_data['trend_analysis'].get('medium_term', 'N/A')}\n"
-        f"  - SMA50: ${tech.get('sma_50', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('sma_50', 0)) / tech.get('sma_50', 1) * 100):+.2f}%)\n"
-        f"  - EMA20: ${tech.get('ema_20', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('ema_20', 0)) / tech.get('ema_20', 1) * 100):+.2f}%)\n"
-        f"  - EMA50: ${tech.get('ema_50', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('ema_50', 0)) / tech.get('ema_50', 1) * 100):+.2f}%)\n"
+        f"  - VWMA50: ${tech.get('sma_50', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('sma_50', 0)) / tech.get('sma_50', 1) * 100):+.2f}%)\n"
+        f"  - VWEMA20: ${tech.get('ema_20', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('ema_20', 0)) / tech.get('ema_20', 1) * 100):+.2f}%)\n"
+        f"  - VWEMA50: ${tech.get('ema_50', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('ema_50', 0)) / tech.get('ema_50', 1) * 100):+.2f}%)\n"
         f"  - RSI(14): {tech.get('rsi', 0):.2f} | RSI(7): {tech.get('rsi_7', 0):.2f}\n"
         f"  - MACD线: {tech.get('macd', 0):.4f} | MACD信号线: {tech.get('macd_signal', 0):.4f}\n"
         f"  - MACD柱状图: {tech.get('macd_histogram', 0):.4f} ({'金叉看涨' if tech.get('macd_histogram', 0) > 0 else '死叉看跌'})\n"
@@ -397,7 +397,7 @@ def build_professional_prompt(
         position_table,
         "  【信心度判断标准】⭐ 重要\n"
         "  HIGH (高信心) - 同时满足以下条件时使用:\n"
-        "  ✓ 多个技术指标强烈共振（EMA/SMA均线、RSI双周期、MACD金叉/死叉、成交量、ATR波动率）\n"
+        "  ✓ 多个技术指标强烈共振（VWEMA/VWMA成交量加权均线、RSI双周期、MACD金叉/死叉、成交量、ATR波动率）\n"
         "  ✓ 价格突破关键支撑/阻力位，且有明显成交量配合（成交量比率>1.2）\n"
         "  ✓ 形态清晰（如金叉/死叉、突破/跌破均线、布林带突破等）\n"
         "  ✓ 资金费率和持仓量支持该方向判断\n"
@@ -405,7 +405,7 @@ def build_professional_prompt(
         "  MEDIUM (中信心) - 以下情况使用:\n"
         "  • 技术指标有2-3个支持该方向，但存在1个分歧\n"
         "  • 趋势方向明确但动能不强（成交量一般，ATR未放大）\n"
-        "  • 突破但未完全确认（如价格在EMA20和EMA50之间）\n"
+        "  • 突破但未完全确认（如价格在VWEMA20和VWEMA50之间）\n"
         "  • 应作为主要选择，占比约50%\n"
         "  LOW (低信心) - 仅在以下情况使用:\n"
         "  • 技术指标严重分歧（多空信号各半）\n"
@@ -472,7 +472,7 @@ def build_system_prompt(config: Dict) -> str:
     return f"""你是专业的加密货币量化交易分析师，擅长多维度技术分析和风险控制。
 
 【你的专长】
-- 精通多时间周期趋势分析（SMA/EMA均线系统）
+- 精通多时间周期趋势分析（VWMA/VWEMA成交量加权均线系统，基于典型价）
 - 擅长多指标共振分析（RSI双周期、MACD完整系统、布林带、ATR波动率）
 - 理解市场微观结构（成交量分析、资金费率、持仓量）
 - 具备风险管理意识（ATR动态止损、仓位管理）
@@ -496,13 +496,13 @@ def build_system_prompt(config: Dict) -> str:
 
 【⚠️ 重要：多空平衡与平仓管理】
 这是永续合约双向交易系统，必须平衡做多、做空和平仓：
-- BUY：当技术指标显示上涨趋势时（价格>均线、RSI上升、MACD金叉、放量等）
-- SELL：当技术指标显示下跌趋势时（价格<均线、RSI下降、MACD死叉、资金费率负值等）
+- BUY：当技术指标显示上涨趋势时（RSI上升、MACD金叉、价格从VWMA上穿VWEMA且放量、价格从VWMA上方下跌到VWMA附近且缩量等）
+- SELL：当技术指标显示下跌趋势时（RSI下降、MACD死叉、价格击穿VWMA且放量、价格从VWMA下方上涨到VWMA附近且缩量等）
 - CLOSE：⭐ 当有持仓且应该平仓时使用（趋势反转、触及止盈止损、技术指标衰竭）
 - HOLD：只在技术指标严重分歧或震荡时使用
 
 ⚠️ 不要只关注做多机会！下跌趋势同样是交易机会！
-当看到明确的下跌信号时（如：价格跌破EMA20/50、MACD死叉、RSI<40、成交量放大），应果断选择SELL做空。
+当看到明确的下跌信号时（如：价格跌破VWEMA20/50、MACD死叉、RSI<40、成交量放大），应果断选择SELL做空。
 SELL不是平仓，而是开空仓获利的机会！
 
 ⭐ 平仓时机管理：
