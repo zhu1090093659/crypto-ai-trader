@@ -119,7 +119,7 @@ def format_history_table(history: List[Dict]) -> str:
         seq_no = idx - total
         signal = (record.get("signal") or "--").upper().ljust(4)
         confidence = (record.get("confidence") or "--").upper().ljust(3)
-        leverage = f"{int(record.get('leverage', 0)):>2}x"
+        leverage = f"{int(record.get('leverage', 0)):>2}x" if record.get("leverage") is not None else "2x"
         entry = format_number(record.get("entry_price"))
         validation = format_number(record.get("validation_price"))
         change_pct = format_percentage(record.get("price_change_pct"))
