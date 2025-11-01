@@ -288,6 +288,17 @@ function switchView(view, modelKey = null) {
         currentModel = modelKey || currentModel;
         if (homeView) homeView.classList.add('hidden');
         if (modelView) modelView.classList.remove('hidden');
+        // 关键：从隐藏态切换到可见后，ECharts 容器尺寸发生变化，需要主动触发一次 resize
+        // 使用微任务延迟以确保浏览器完成布局计算
+        setTimeout(() => {
+            try {
+                if (modelBalanceChart) modelBalanceChart.resize();
+                if (signalChart) signalChart.resize();
+                if (confidenceChart) confidenceChart.resize();
+            } catch (e) {
+                // 忽略异常，保证不影响后续流程
+            }
+        }, 0);
         resetModelState();
         updateModelView(true);
     }
