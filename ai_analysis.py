@@ -68,7 +68,7 @@ def validate_and_correct_leverage(signal_data: Dict, config: Dict) -> Dict:
 
     # 如果没有提供杠杆值，使用默认值
     if leverage is None:
-        print(f"[{config['display']}] ⚠️ AI未返回杠杆值，使用默认值 {leverage_default}x")
+        print(f"[{config['display']}] AI未返回杠杆值，使用默认值 {leverage_default}x")
         signal_data["leverage"] = leverage_default
         return signal_data
 
@@ -76,7 +76,7 @@ def validate_and_correct_leverage(signal_data: Dict, config: Dict) -> Dict:
     try:
         leverage = int(leverage)
     except (ValueError, TypeError):
-        print(f"[{config['display']}] ⚠️ 杠杆值格式错误: {leverage}，使用默认值 {leverage_default}x")
+        print(f"[{config['display']}] 杠杆值格式错误: {leverage}，使用默认值 {leverage_default}x")
         signal_data["leverage"] = leverage_default
         return signal_data
 
@@ -85,7 +85,7 @@ def validate_and_correct_leverage(signal_data: Dict, config: Dict) -> Dict:
         original_leverage = leverage
         # 限制在配置范围内
         leverage = max(leverage_min, min(leverage, leverage_max))
-        print(f"[{config['display']}] ⚠️ 杠杆值 {original_leverage}x 超出配置范围 [{leverage_min}-{leverage_max}]，已修正为 {leverage}x")
+        print(f"[{config['display']}] 杠杆值 {original_leverage}x 超出配置范围 [{leverage_min}-{leverage_max}]，已修正为 {leverage}x")
         signal_data["leverage"] = leverage
     else:
         print(f"[{config['display']}] ✓ 杠杆值 {leverage}x 在有效范围内")
@@ -147,7 +147,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
         if available_balance <= 0:
             available_balance = 1000.0
     except Exception as e:
-        print(f"⚠️ 获取余额失败: {e}")
+        print(f"获取余额失败: {e}")
         available_balance = 1000.0
 
     print(f"[{config['display']}] 🔍 AI分析-获取余额: {available_balance:.2f} USDT")
@@ -212,9 +212,9 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
 
     if not can_trade:
         min_contracts_display = min_contracts if min_contracts else base_to_contracts(symbol, min_quantity)
-        print(f"[{config['display']}] ⚠️ 余额不足：即使最大杠杆也无法满足最小交易量 {min_quantity} ({min_contracts_display:.3f} 张)")
-        print(f"[{config['display']}] 💡 当前余额: {available_balance:.2f} USDT")
-        print(f"[{config['display']}] 💡 建议充值至少: {(min_quantity * current_price / config['leverage_max']):.2f} USDT")
+        print(f"[{config['display']}] 余额不足：即使最大杠杆也无法满足最小交易量 {min_quantity} ({min_contracts_display:.3f} 张)")
+        print(f"[{config['display']}]  当前余额: {available_balance:.2f} USDT")
+        print(f"[{config['display']}]  建议充值至少: {(min_quantity * current_price / config['leverage_max']):.2f} USDT")
 
         fallback_signal = {
             "signal": "HOLD",
@@ -230,7 +230,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
         append_signal_record(symbol, fallback_signal, current_price, fallback_signal["timestamp"])
         ctx.metrics["signals_generated"] += 1
 
-        print(f"[{config['display']}] 💡 跳过AI分析（余额不足），直接返回HOLD信号")
+        print(f"[{config['display']}]  跳过AI分析（余额不足），直接返回HOLD信号")
         return fallback_signal
 
     # 3) 更新历史记录验证信息
@@ -247,7 +247,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
         print(f"[{config['display']}] {sentiment_text}")
     else:
         if token != "BTC":
-            print(f"[{config['display']}] ⚠️ {token}情绪数据不可用，尝试使用BTC市场情绪...")
+            print(f"[{config['display']}] {token}情绪数据不可用，尝试使用BTC市场情绪...")
             btc_sentiment = get_sentiment_indicators("BTC")
             if btc_sentiment:
                 sign = "+" if btc_sentiment["net_sentiment"] >= 0 else ""
@@ -291,7 +291,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
             stream=False,
             temperature=0.,
-            timeout=30.0,
+            # timeout=60.0,
         )
         print("✓ API调用成功")
 
@@ -301,7 +301,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
         web_data["ai_model_info"]["error_message"] = None
 
         if not response:
-            print(f"❌ {AI_PROVIDER.upper()}返回空响应")
+            print(f"{AI_PROVIDER.upper()}返回空响应")
             web_data["ai_model_info"]["status"] = "error"
             web_data["ai_model_info"]["error_message"] = "响应为空"
             return create_fallback_signal(price_data)
@@ -311,14 +311,14 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
         elif hasattr(response, "choices") and response.choices:
             result = response.choices[0].message.content
         else:
-            print(f"❌ {AI_PROVIDER.upper()}返回格式异常: {type(response)}")
+            print(f"{AI_PROVIDER.upper()}返回格式异常: {type(response)}")
             print(f"   响应内容: {str(response)[:200]}")
             web_data["ai_model_info"]["status"] = "error"
             web_data["ai_model_info"]["error_message"] = "响应格式异常"
             return create_fallback_signal(price_data)
 
         if not result:
-            print(f"❌ {AI_PROVIDER.upper()}返回空内容")
+            print(f"{AI_PROVIDER.upper()}返回空内容")
             return create_fallback_signal(price_data)
 
         print(f"\n{'='*60}")
@@ -334,19 +334,19 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
             json_str = result[start_idx:end_idx]
             signal_data = safe_json_parse(json_str)
             if signal_data is None:
-                print("⚠️ JSON解析失败，使用备用信号")
+                print("JSON解析失败，使用备用信号")
                 signal_data = create_fallback_signal(price_data)
             else:
                 print(f"✓ 成功解析AI决策: {signal_data.get('signal')} - {signal_data.get('confidence')}")
         else:
-            print("⚠️ 未找到JSON格式，使用备用信号")
+            print("未找到JSON格式，使用备用信号")
             signal_data = create_fallback_signal(price_data)
 
         # 字段校验与杠杆修正
         required_fields = ["signal", "reason", "stop_loss", "take_profit", "confidence"]
         if not all(field in signal_data for field in required_fields):
             missing = [f for f in required_fields if f not in signal_data]
-            print(f"⚠️ 缺少必需字段: {missing}，使用备用信号")
+            print(f"缺少必需字段: {missing}，使用备用信号")
             signal_data = create_fallback_signal(price_data)
 
         signal_data = validate_and_correct_leverage(signal_data, config)
@@ -364,7 +364,7 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
         if len(history) >= 3:
             last_three = [s["signal"] for s in history[-3:]]
             if len(set(last_three)) == 1:
-                print(f"[{config['display']}] ⚠️ 注意：连续3次{signal_data['signal']}信号")
+                print(f"[{config['display']}] 注意：连续3次{signal_data['signal']}信号")
 
         if len(history) >= 20:
             recent_20 = history[-20:]
@@ -377,15 +377,15 @@ def analyze_with_llm(symbol: str, price_data: Dict, config: Dict) -> Dict:
             high_ratio = conf_counts["HIGH"] / len(recent_20)
 
             if low_ratio > 0.5:
-                print(f"[{config['display']}] ⚠️ 信心度警告：最近20次中{low_ratio*100:.0f}%是LOW，模型可能过于保守")
+                print(f"[{config['display']}] 信心度警告：最近20次中{low_ratio*100:.0f}%是LOW，模型可能过于保守")
                 print(f"[{config['display']}]    分布: HIGH={conf_counts['HIGH']} MED={conf_counts['MEDIUM']} LOW={conf_counts['LOW']}")
             elif high_ratio < 0.2:
-                print(f"[{config['display']}] 💡 提示：最近20次中HIGH仅{high_ratio*100:.0f}%，可能错过高确定性机会")
+                print(f"[{config['display']}]  提示：最近20次中HIGH仅{high_ratio*100:.0f}%，可能错过高确定性机会")
 
         return signal_data
 
     except Exception as e:
-        print(f"[{config['display']}] ❌ {AI_PROVIDER.upper()}分析失败: {e}")
+        print(f"[{config['display']}] {AI_PROVIDER.upper()}分析失败: {e}")
         import traceback
 
         traceback.print_exc()

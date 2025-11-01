@@ -59,7 +59,7 @@ def main() -> int:
     args = parse_args()
 
     if args.model not in MODEL_CONTEXTS:
-        print(f"❌ 未找到模型 '{args.model}'，可用模型：{', '.join(MODEL_CONTEXTS.keys())}")
+        print(f"未找到模型 '{args.model}'，可用模型：{', '.join(MODEL_CONTEXTS.keys())}")
         return 1
 
     ctx = MODEL_CONTEXTS[args.model]
@@ -105,7 +105,7 @@ def main() -> int:
             print("✅ 已提交 reduceOnly 平仓订单。")
             return 0
         except Exception as exc:  # 捕获所有异常，便于快速反馈
-            print(f"❌ 平仓失败：{exc}")
+            print(f"平仓失败：{exc}")
             return 2
 
 

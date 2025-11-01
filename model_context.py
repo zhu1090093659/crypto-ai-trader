@@ -36,7 +36,7 @@ class ModelContext:
             markets = self.exchange.load_markets()
             self.markets = {symbol: markets.get(symbol) for symbol in TRADE_CONFIGS if symbol in markets}
         except Exception as e:
-            print(f"⚠️ {self.display} 加载市场信息失败")
+            print(f"{self.display} 加载市场信息失败")
             print(f"   错误类型: {type(e).__name__}")
             print(f"   错误信息: {str(e)}")
             if hasattr(e, "response") and e.response:
@@ -79,9 +79,9 @@ class ModelContext:
 
         # 打印配置加载状态（隐藏敏感信息）
         print(f"[{self.display}] OKX API 配置检查:")
-        print(f'   API Key: {"已配置" if api_key else "❌ 未配置"} (前6位: {api_key[:6] if api_key else "无"}...)')
-        print(f'   Secret: {"已配置" if secret else "❌ 未配置"} (前6位: {secret[:6] if secret else "无"}...)')
-        print(f'   Password: {"已配置" if password else "❌ 未配置"}')
+        print(f'   API Key: {"已配置" if api_key else "未配置"} (前6位: {api_key[:6] if api_key else "无"}...)')
+        print(f'   Secret: {"已配置" if secret else "未配置"} (前6位: {secret[:6] if secret else "无"}...)')
+        print(f'   Password: {"已配置" if password else "未配置"}')
         print(f'   子账户: {sub_account if sub_account else "使用主账户"}')
 
         if not all([api_key, secret, password]):

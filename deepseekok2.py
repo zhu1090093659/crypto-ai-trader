@@ -125,7 +125,7 @@ def place_trailing_stop_order(symbol: str, pos_side: str, contracts_sz: float, t
     """使用 OKX 策略委托下单接口创建移动止盈/止损（追踪止盈/止损）。
 
     要求：ordType=move_order_stop
-    关键参数：activePx + (callbackRate 或 callbackSpread)
+    关键参数：activePx + (callbackRatio 或 callbackSpread)
     """
     try:
         market = exchange.market(symbol)
@@ -142,14 +142,21 @@ def place_trailing_stop_order(symbol: str, pos_side: str, contracts_sz: float, t
             "instId": inst_id,
             "tdMode": "cross",
             "side": side,
-            "posSide": pos_side,  # long/short
             "ordType": "move_order_stop",
             "sz": str(sz_val),
             "activePx": str(ts_active_px),
         }
+        # 仅在对冲模式（long/short 分仓）下传递 posSide；净持仓模式传该字段会报错
+        try:
+            opts = getattr(exchange, "options", {}) or {}
+            is_hedged = bool(opts.get("hedgeMode")) or opts.get("defaultPositionMode") in {"hedged", "long_short_mode"}
+        except Exception:
+            is_hedged = False
+        if is_hedged:
+            payload["posSide"] = pos_side  # long/short
         if ts_callback_rate is not None:
-            payload["callbackRate"] = str(ts_callback_rate)
-        if ts_callback_spread is not None and "callbackRate" not in payload:
+            payload["callbackRatio"] = str(ts_callback_rate)
+        if ts_callback_spread is not None and "callbackRatio" not in payload:
             payload["callbackSpread"] = str(ts_callback_spread)
 
         # 原生 OKX v5 接口
@@ -157,7 +164,7 @@ def place_trailing_stop_order(symbol: str, pos_side: str, contracts_sz: float, t
         print(f"[OKX] ✓ 已创建移动止盈止损: posSide={pos_side} side={side} sz={sz_val} activePx={ts_active_px} rate={ts_callback_rate} spread={ts_callback_spread}")
         return resp
     except Exception as e:
-        print(f"[OKX] ❌ 创建移动止盈止损失败: {e}")
+        print(f"[OKX] 创建移动止盈止损失败: {e}")
         return None
 
 def request_stop_trading_bot() -> None:
@@ -188,7 +195,7 @@ for model_key in ENABLED_MODELS:
     if model_key in MODEL_METADATA:
         MODEL_CONTEXTS[model_key] = ModelContext(model_key, MODEL_METADATA[model_key])
     else:
-        print(f"⚠️ 未识别的模型标识: {model_key}，已跳过。")
+        print(f"未识别的模型标识: {model_key}，已跳过。")
 
 if not MODEL_CONTEXTS:
     raise RuntimeError("未启用任何可用模型，请检查 ENABLED_MODELS 配置。")
@@ -323,7 +330,12 @@ def setup_exchange():
                 exchange.set_leverage(config["leverage_default"], symbol, {"mgnMode": "cross"})  # 全仓模式
                 print(f"✓ {config['display']}: 杠杆 {config['leverage_default']}x")
             except Exception as e:
-                print(f"✗ {config['display']}: 杠杆设置失败 - {e}")
+                err_msg = str(e)
+                if ("59669" in err_msg) or ("Cancel cross-margin" in err_msg):
+                    # OKX 59669：需要先取消全仓下的止盈止损、移动止盈、触发单或停止机器人
+                    print(f"✗ {config['display']}: 跳过杠杆调整（检测到活动的TP/SL/追踪/触发单或机器人）")
+                else:
+                    print(f"✗ {config['display']}: 杠杆设置失败 - {e}")
 
         # 获取余额
         balance = exchange.fetch_balance()
@@ -350,20 +362,20 @@ def setup_exchange():
                     break
 
         if usdt_balance <= 0:
-            print("⚠️ 警告: 交易账户USDT余额为0")
-            print("💡 提示：请从【资金账户】划转USDT到【交易账户】")
-            print("💡 OKX网页 → 资产 → 资金划转 → 从资金账户转到交易账户")
+            print("警告: 交易账户USDT余额为0")
+            print(" 提示：请从【资金账户】划转USDT到【交易账户】")
+            print(" OKX网页 → 资产 → 资金划转 → 从资金账户转到交易账户")
 
         # 更新账户摘要
         with data_lock:
             web_data["account_summary"].update({"total_balance": usdt_balance, "available_balance": usdt_balance, "total_equity": total_equity})
 
-        print(f"\n💰 当前USDT余额: {usdt_balance:.2f}")
-        print(f"💰 总权益: {total_equity:.2f}\n")
+        print(f"\n当前USDT余额: {usdt_balance:.2f}")
+        print(f"总权益: {total_equity:.2f}\n")
 
         return True
     except Exception as e:
-        print("❌ 交易所设置失败")
+        print("交易所设置失败")
         print(f"   错误类型: {type(e).__name__}")
         print(f"   错误信息: {str(e)}")
         import traceback
@@ -384,7 +396,7 @@ def capture_balance_snapshot(ctx: ModelContext, timestamp: Optional[str] = None)
         total_equity = float(usdt_info.get("total") or usdt_info.get("equity", 0) or 0)
         unrealized = float(usdt_info.get("unrealizedPnl", 0) or 0)
     except Exception as e:
-        print(f"[{ctx.display}] ⚠️ 获取余额失败")
+        print(f"[{ctx.display}] 获取余额失败")
         print(f"   错误类型: {type(e).__name__}")
         print(f"   错误信息: {str(e)}")
         if hasattr(e, "response") and e.response:
@@ -486,7 +498,7 @@ def execute_trade(symbol, signal_data, price_data, config):
     current_position = get_current_position(symbol)
     trade_history = web_data["symbols"][symbol].get("trade_history", [])
 
-    # 🔴 统一的交易保护机制：防止频繁交易和频繁反转
+    # 统一的交易保护机制：防止频繁交易和频繁反转
     if signal_data["signal"] not in ["HOLD"] and len(trade_history) >= 1:
         last_trade = trade_history[-1]
         last_trade_time = datetime.strptime(last_trade["timestamp"], "%Y-%m-%d %H:%M:%S")
@@ -494,10 +506,10 @@ def execute_trade(symbol, signal_data, price_data, config):
 
         # 1. 基础时间间隔保护（适用于所有交易，包括CLOSE）
         if time_diff < 10:  # 10分钟内无条件拒绝
-            print(f"[{config['display']}] 🔒 距离上次交易仅{time_diff:.1f}分钟，避免过度频繁交易")
+            print(f"[{config['display']}] 距离上次交易仅{time_diff:.1f}分钟，避免过度频繁交易")
             return
         elif time_diff < 20 and signal_data["confidence"] != "HIGH":  # 10-20分钟内只允许HIGH信心
-            print(f"[{config['display']}] 🔒 距离上次交易{time_diff:.1f}分钟，非HIGH信心不执行")
+            print(f"[{config['display']}] 距离上次交易{time_diff:.1f}分钟，非HIGH信心不执行")
             return
 
         # 2. 来回反转保护（防止：多→空→多 或 空→多→空）
@@ -511,7 +523,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                 last_trade_side = last_trade.get("side")
                 # 如果上次交易就是这个方向，说明是来回反转（如：多→空→多）
                 if last_trade_side == new_side and time_diff < 30:
-                    print(f"[{config['display']}] 🔒 {time_diff:.1f}分钟前刚从{new_side}反转出来，避免来回反转")
+                    print(f"[{config['display']}] {time_diff:.1f}分钟前刚从{new_side}反转出来，避免来回反转")
                     return
 
     print(f"[{config['display']}] 交易信号: {signal_data.get('signal')}")
@@ -524,15 +536,15 @@ def execute_trade(symbol, signal_data, price_data, config):
     # 处理CLOSE平仓信号
     if signal_data.get("signal", "").upper() == "CLOSE":
         if not current_position:
-            print(f"[{config['display']}] ⚠️ CLOSE信号但无持仓，忽略")
+            print(f"[{config['display']}] CLOSE信号但无持仓，忽略")
             return
 
         # CLOSE信号也需要HIGH信心才能执行，避免频繁交易
         if signal_data["confidence"] != "HIGH":
-            print(f"[{config['display']}] 🔒 CLOSE信号信心度为{signal_data['confidence']}（需要HIGH），不执行平仓")
+            print(f"[{config['display']}] CLOSE信号信心度为{signal_data['confidence']}（需要HIGH），不执行平仓")
             return
 
-        print(f"[{config['display']}] 🔴 执行CLOSE平仓信号 (信心度: HIGH)")
+        print(f"[{config['display']}] 执行CLOSE平仓信号 (信心度: HIGH)")
 
         if config["test_mode"]:
             print(f"[{config['display']}] 测试模式 - 仅模拟平仓")
@@ -543,7 +555,7 @@ def execute_trade(symbol, signal_data, price_data, config):
             ctx = get_active_context()
             size_contracts = float(current_position.get("size", 0) or 0)
             if size_contracts <= 0:
-                print(f"[{config['display']}] ⚠️ 持仓数量为0，无需平仓")
+                print(f"[{config['display']}] 持仓数量为0，无需平仓")
                 return
 
             side = current_position.get("side")
@@ -595,7 +607,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                 ctx.web_data["symbols"][symbol]["current_position"] = None
 
         except Exception as e:
-            print(f"[{config['display']}] ❌ 平仓失败: {e}")
+            print(f"[{config['display']}] 平仓失败: {e}")
             import traceback
 
             traceback.print_exc()
@@ -608,7 +620,7 @@ def execute_trade(symbol, signal_data, price_data, config):
 
     # 风险管理：低信心信号不执行
     if signal_data["confidence"] == "LOW" and not config["test_mode"]:
-        print(f"[{config['display']}] ⚠️ 低信心信号，跳过执行")
+        print(f"[{config['display']}] 低信心信号，跳过执行")
         return
 
     if config["test_mode"]:
@@ -616,11 +628,11 @@ def execute_trade(symbol, signal_data, price_data, config):
         return
 
     try:
-        # 🔒 获取全局执行锁，防止多个交易对并发下单导致保证金竞争
+        # 获取全局执行锁，防止多个交易对并发下单导致保证金竞争
         with order_execution_lock:
-            print(f"[{config['display']}] 🔒 已获取交易执行锁，开始处理...")
+            print(f"[{config['display']}] 已获取交易执行锁，开始处理...")
 
-            # 📊 获取账户余额
+            # 获取账户余额
             balance = exchange.fetch_balance()
 
             # 解析 OKX 特殊的余额结构
@@ -643,9 +655,9 @@ def execute_trade(symbol, signal_data, price_data, config):
                         break
 
             if usdt_balance <= 0:
-                print(f"[{config['display']}] ⚠️ 交易账户USDT余额为0")
-                print(f"[{config['display']}] 💡 提示：请先从【资金账户】划转USDT到【交易账户】")
-                print(f"[{config['display']}] 💡 操作路径：OKX网页 → 资产 → 资金划转")
+                print(f"[{config['display']}] 交易账户USDT余额为0")
+                print(f"[{config['display']}]  提示：请先从【资金账户】划转USDT到【交易账户】")
+                print(f"[{config['display']}]  操作路径：OKX网页 → 资产 → 资金划转")
                 return
 
             # 获取AI建议的杠杆和数量（确保类型转换）
@@ -653,7 +665,7 @@ def execute_trade(symbol, signal_data, price_data, config):
             order_value = safe_float(signal_data.get("order_value"), 0)
             order_quantity = safe_float(signal_data.get("order_quantity"), 0)
 
-            # 🆕 双重验证机制：智能计算实际可用保证金
+            # 双重验证机制：智能计算实际可用保证金
             current_price = price_data["price"]
 
             contract_specs = get_symbol_contract_specs(symbol)
@@ -663,7 +675,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                 min_contracts = adjust_contract_quantity(symbol, min_contracts, round_up=True)
             min_quantity = contracts_to_base(symbol, min_contracts) if min_contracts else get_symbol_min_amount(symbol)
 
-            # 🔴 关键修复：从OKX balance结构中提取更准确的数据
+            # 关键修复：从OKX balance结构中提取更准确的数据
             try:
                 # 尝试从info.details中获取USDT的详细信息
                 usdt_details = None
@@ -682,13 +694,13 @@ def execute_trade(symbol, signal_data, price_data, config):
                     frozen_bal = float(usdt_details.get("frozenBal", 0))
                     current_imr = float(usdt_details.get("imr", 0))
 
-                    print(f"[{config['display']}] 📊 OKX账户详情:")
+                    print(f"[{config['display']}] OKX账户详情:")
                     print(f"[{config['display']}]    - 可用余额: {avail_bal:.2f} USDT")
                     print(f"[{config['display']}]    - 总权益: {total_eq:.2f} USDT")
                     print(f"[{config['display']}]    - 已冻结: {frozen_bal:.2f} USDT")
                     print(f"[{config['display']}]    - 已占用保证金: {current_imr:.2f} USDT")
 
-                    # 🔴 方案B++：智能计算保证金（使用可配置的阈值和缓冲）
+                    # 方案B++：智能计算保证金（使用可配置的阈值和缓冲）
                     # 说明：考虑OKX隐藏buffer、手续费、价格波动等因素，使用更保守的参数
                     max_total_imr = total_eq * MAX_TOTAL_MARGIN_RATIO  # 总保证金不超过权益的配置比例（应对OKX梯度保证金制度）
                     max_new_margin = max_total_imr - current_imr  # 可用于新仓位的保证金
@@ -696,18 +708,18 @@ def execute_trade(symbol, signal_data, price_data, config):
                     # 取两者的较小值，并应用安全缓冲（应对价格波动、手续费、OKX buffer）
                     max_usable_margin = min(avail_bal, max_new_margin) * MARGIN_SAFETY_BUFFER
 
-                    print(f"[{config['display']}] 💡 智能计算:")
+                    print(f"[{config['display']}]  智能计算:")
                     print(f"[{config['display']}]    - 最大允许总保证金: {max_total_imr:.2f} USDT (权益的{MAX_TOTAL_MARGIN_RATIO*100:.0f}%)")
                     print(f"[{config['display']}]    - 可用于新仓位: {max_new_margin:.2f} USDT")
                     print(f"[{config['display']}]    - 最终可用保证金: {max_usable_margin:.2f} USDT (含{MARGIN_SAFETY_BUFFER*100:.0f}%安全缓冲)")
                 else:
                     # 降级方案：简单计算
                     max_usable_margin = usdt_balance * 0.35
-                    print(f"[{config['display']}] ⚠️ 未找到详细信息，使用简单计算: {max_usable_margin:.2f} USDT")
+                    print(f"[{config['display']}] 未找到详细信息，使用简单计算: {max_usable_margin:.2f} USDT")
             except Exception as e:
                 # 异常时使用保守策略
                 max_usable_margin = usdt_balance * 0.35
-                print(f"[{config['display']}] ⚠️ 解析balance失败: {e}，使用保守值: {max_usable_margin:.2f} USDT")
+                print(f"[{config['display']}] 解析balance失败: {e}，使用保守值: {max_usable_margin:.2f} USDT")
 
             # 为当前信心等级和杠杆计算有效仓位
             confidence = signal_data.get("confidence", "MEDIUM")
@@ -729,7 +741,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                 lower_bound = expected_quantity * 0.8
                 upper_bound = expected_quantity * 1.2
                 if expected_quantity > 0 and (trade_amount < lower_bound or trade_amount > upper_bound):
-                    print(f"[{config['display']}] ⚠️ AI返回的数量 {trade_amount:.6f} 超出预期范围 [{lower_bound:.6f}, {upper_bound:.6f}]")
+                    print(f"[{config['display']}] AI返回的数量 {trade_amount:.6f} 超出预期范围 [{lower_bound:.6f}, {upper_bound:.6f}]")
                     print(f"[{config['display']}] 🔧 自动调整为标准仓位: {expected_quantity:.6f}")
                     trade_contracts = expected_contracts
             elif order_value > 0:
@@ -737,18 +749,18 @@ def execute_trade(symbol, signal_data, price_data, config):
                 trade_contracts = base_to_contracts(symbol, raw_quantity)
             else:
                 trade_contracts = expected_contracts
-                print(f"[{config['display']}] 💡 AI未指定数量，使用标准仓位: {contracts_to_base(symbol, trade_contracts):.6f}")
+                print(f"[{config['display']}]  AI未指定数量，使用标准仓位: {contracts_to_base(symbol, trade_contracts):.6f}")
 
             if min_contracts and trade_contracts < min_contracts:
-                print(f"[{config['display']}] ⚠️ 交易张数 {trade_contracts:.6f} 低于最小张数 {min_contracts:.6f}")
+                print(f"[{config['display']}] 交易张数 {trade_contracts:.6f} 低于最小张数 {min_contracts:.6f}")
                 test_margin = current_price * contracts_to_base(symbol, min_contracts) / suggested_leverage if current_price else 0
                 if test_margin <= max_usable_margin:
                     print(f"[{config['display']}] 🔧 调整为最小交易量: {contracts_to_base(symbol, min_contracts):.6f}")
                     trade_contracts = min_contracts
                 else:
-                    print(f"[{config['display']}] ❌ 即使最小交易量也需要 {test_margin:.2f} USDT保证金，超出可用 {max_usable_margin:.2f} USDT")
+                    print(f"[{config['display']}] 即使最小交易量也需要 {test_margin:.2f} USDT保证金，超出可用 {max_usable_margin:.2f} USDT")
                     print(
-                        f"[{config['display']}] 💡 建议充值至少: {(contracts_to_base(symbol, min_contracts) * current_price / suggested_leverage):.2f} USDT"
+                        f"[{config['display']}]  建议充值至少: {(contracts_to_base(symbol, min_contracts) * current_price / suggested_leverage):.2f} USDT"
                     )
                     return
 
@@ -756,18 +768,18 @@ def execute_trade(symbol, signal_data, price_data, config):
             trade_amount = contracts_to_base(symbol, trade_contracts)
 
             if min_contracts and trade_contracts < min_contracts:
-                print(f"[{config['display']}] ❌ 调整到交易精度后张数仍低于最小要求 {min_contracts}")
+                print(f"[{config['display']}] 调整到交易精度后张数仍低于最小要求 {min_contracts}")
                 return
 
             # 计算所需保证金（第1次验证）
             required_margin = current_price * trade_amount / suggested_leverage
 
             if required_margin > max_usable_margin:
-                print(f"[{config['display']}] ⚠️ 初步验证：保证金不足")
+                print(f"[{config['display']}] 初步验证：保证金不足")
                 print(f"[{config['display']}] 需要: {required_margin:.2f} USDT")
                 print(f"[{config['display']}] 可用: {max_usable_margin:.2f} USDT")
 
-                # 🆕 尝试动态调整数量
+                # 尝试动态调整数量
                 adjusted_contracts = base_to_contracts(
                     symbol, (max_usable_margin * 0.95) * suggested_leverage / current_price if current_price else 0
                 )
@@ -775,32 +787,32 @@ def execute_trade(symbol, signal_data, price_data, config):
                 adjusted_amount = contracts_to_base(symbol, adjusted_contracts)
                 if adjusted_contracts >= min_contracts and adjusted_amount >= min_quantity:
                     print(
-                        f"[{config['display']}] 💡 动态调整数量: {trade_amount:.6f} ({trade_contracts:.6f}张) → {adjusted_amount:.6f} ({adjusted_contracts:.6f}张)"
+                        f"[{config['display']}]  动态调整数量: {trade_amount:.6f} ({trade_contracts:.6f}张) → {adjusted_amount:.6f} ({adjusted_contracts:.6f}张)"
                     )
                     trade_contracts = adjusted_contracts
                     trade_amount = adjusted_amount
                     required_margin = current_price * trade_amount / suggested_leverage
                 else:
-                    print(f"[{config['display']}] ❌ 即使调整也无法满足最小交易量，跳过")
+                    print(f"[{config['display']}] 即使调整也无法满足最小交易量，跳过")
                     return
 
             # 显示初步计算结果
-            print(f"[{config['display']}] 📊 初步计算参数:")
+            print(f"[{config['display']}] 初步计算参数:")
             print(f"[{config['display']}]    - 数量: {trade_amount:.6f} ({trade_contracts:.6f} 张, 合约面值 {contract_size:g})")
             print(f"[{config['display']}]    - 杠杆: {suggested_leverage}x")
             print(f"[{config['display']}]    - 所需保证金: {required_margin:.2f} USDT")
             print(f"[{config['display']}]    - 仓位价值: ${(current_price * trade_amount):.2f}")
             print(f"[{config['display']}]    - 保证金占用率: {(required_margin / max_usable_margin * 100):.1f}%")
 
-            # ============ 🆕 关键改进：下单前实时验证 ============
+            # ============ 关键改进：下单前实时验证 ============
             print(f"\n[{config['display']}] 🔄 下单前重新验证余额...")
             time.sleep(0.5)  # 短暂延迟，让其他线程订单生效
 
-            # 📊 第2次余额获取（实时）+ 智能计算
+            # 第2次余额获取（实时）+ 智能计算
             fresh_balance = exchange.fetch_balance()
             fresh_usdt = fresh_balance["USDT"]["free"]
 
-            # 🔴 关键修复：应用同样的智能保证金计算
+            # 关键修复：应用同样的智能保证金计算
             try:
                 # 解析OKX详细余额信息
                 fresh_usdt_details = None
@@ -818,7 +830,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                     fresh_total_eq = float(fresh_usdt_details.get("eq", fresh_usdt))
                     fresh_current_imr = float(fresh_usdt_details.get("imr", 0))
 
-                    # 🔴 方案B++：智能计算保证金（使用可配置的阈值和缓冲）- 与第一阶段完全一致
+                    # 方案B++：智能计算保证金（使用可配置的阈值和缓冲）- 与第一阶段完全一致
                     # 说明：考虑OKX隐藏buffer、手续费、价格波动等因素，使用更保守的参数
                     fresh_max_total_imr = fresh_total_eq * MAX_TOTAL_MARGIN_RATIO  # 总保证金不超过权益的配置比例（应对OKX梯度保证金制度）
                     fresh_max_new_margin = fresh_max_total_imr - fresh_current_imr
@@ -826,8 +838,8 @@ def execute_trade(symbol, signal_data, price_data, config):
                     # 取两者的较小值，并应用安全缓冲（应对价格波动、手续费、OKX buffer）
                     fresh_max_margin = min(fresh_avail_bal, fresh_max_new_margin) * MARGIN_SAFETY_BUFFER
 
-                    print(f"[{config['display']}] 💰 实时余额: {fresh_usdt:.2f} USDT")
-                    print(f"[{config['display']}] 💡 实时智能计算:")
+                    print(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
+                    print(f"[{config['display']}]  实时智能计算:")
                     print(f"[{config['display']}]    - 总权益: {fresh_total_eq:.2f} USDT")
                     print(f"[{config['display']}]    - 已占用保证金: {fresh_current_imr:.2f} USDT")
                     print(f"[{config['display']}]    - 可用于新仓位: {fresh_max_new_margin:.2f} USDT")
@@ -835,22 +847,22 @@ def execute_trade(symbol, signal_data, price_data, config):
                 else:
                     # 降级方案：简单计算
                     fresh_max_margin = fresh_usdt * 0.35
-                    print(f"[{config['display']}] 💰 实时余额: {fresh_usdt:.2f} USDT")
-                    print(f"[{config['display']}] ⚠️ 未找到详细信息，使用简单计算: {fresh_max_margin:.2f} USDT")
+                    print(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
+                    print(f"[{config['display']}] 未找到详细信息，使用简单计算: {fresh_max_margin:.2f} USDT")
             except Exception as e:
                 # 异常时使用保守策略
                 fresh_max_margin = fresh_usdt * 0.35
-                print(f"[{config['display']}] 💰 实时余额: {fresh_usdt:.2f} USDT")
-                print(f"[{config['display']}] ⚠️ 实时解析失败: {e}，使用保守值: {fresh_max_margin:.2f} USDT")
+                print(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
+                print(f"[{config['display']}] 实时解析失败: {e}，使用保守值: {fresh_max_margin:.2f} USDT")
 
-            # 🆕 第2次验证
+            # 第2次验证
             if required_margin > fresh_max_margin:
-                print(f"[{config['display']}] ❌ 实时验证失败：保证金不足")
+                print(f"[{config['display']}] 实时验证失败：保证金不足")
                 print(f"[{config['display']}] 需要: {required_margin:.2f} USDT")
                 print(f"[{config['display']}] 实时: {fresh_max_margin:.2f} USDT")
-                print(f"[{config['display']}] 💡 可能其他交易对已占用保证金")
+                print(f"[{config['display']}]  可能其他交易对已占用保证金")
 
-                # 🆕 再次尝试动态调整
+                # 再次尝试动态调整
                 final_adjusted_contracts = base_to_contracts(
                     symbol, (fresh_max_margin * 0.95) * suggested_leverage / current_price if current_price else 0
                 )
@@ -858,35 +870,41 @@ def execute_trade(symbol, signal_data, price_data, config):
                 final_adjusted_amount = contracts_to_base(symbol, final_adjusted_contracts)
                 if final_adjusted_contracts >= min_contracts and final_adjusted_amount >= min_quantity:
                     print(
-                        f"[{config['display']}] 💡 最终调整数量: {trade_amount:.6f} ({trade_contracts:.6f}张) → {final_adjusted_amount:.6f} ({final_adjusted_contracts:.6f}张)"
+                        f"[{config['display']}]  最终调整数量: {trade_amount:.6f} ({trade_contracts:.6f}张) → {final_adjusted_amount:.6f} ({final_adjusted_contracts:.6f}张)"
                     )
                     trade_contracts = final_adjusted_contracts
                     trade_amount = final_adjusted_amount
                     required_margin = current_price * trade_amount / suggested_leverage
                 else:
-                    print(f"[{config['display']}] ❌ 无法调整，彻底放弃")
+                    print(f"[{config['display']}] 无法调整，彻底放弃")
                     return
 
             print(f"[{config['display']}] ✅ 实时验证通过")
-            print(f"[{config['display']}] 📊 最终交易参数:")
+            print(f"[{config['display']}] 最终交易参数:")
             print(f"[{config['display']}]    - 数量: {trade_amount:.6f} ({trade_contracts:.6f} 张)")
             print(f"[{config['display']}]    - 杠杆: {suggested_leverage}x")
             print(f"[{config['display']}]    - 所需保证金: {required_margin:.2f} USDT")
 
-            # 🆕 在验证通过后才设置杠杆（避免验证失败导致的杠杆副作用）
+            # 在验证通过后才设置杠杆（避免验证失败导致的杠杆副作用）
             current_leverage = current_position["leverage"] if current_position else config["leverage_default"]
             if suggested_leverage != current_leverage:
                 try:
                     exchange.set_leverage(suggested_leverage, symbol, {"mgnMode": "cross"})
                     print(f"[{config['display']}] ✓ 杠杆已设置为 {suggested_leverage}x")
                 except Exception as e:
-                    print(f"[{config['display']}] ⚠️ 杠杆设置失败: {e}")
+                    err_msg = str(e)
+                    if ("59669" in err_msg) or ("Cancel cross-margin" in err_msg):
+                        print(
+                            f"[{config['display']}] 杠杆调整被拒（59669）：存在活动的TP/SL/追踪/触发单，沿用当前杠杆 {current_leverage}x"
+                        )
+                    else:
+                        print(f"[{config['display']}] 杠杆设置失败: {e}")
                     # 如果杠杆设置失败，使用当前杠杆重新计算
                     suggested_leverage = current_leverage
                     required_margin = current_price * trade_amount / suggested_leverage
                     print(f"[{config['display']}] 使用当前杠杆 {suggested_leverage}x")
 
-            # ============ 🆕 执行交易（带重试机制） ============
+            # ============ 执行交易（带重试机制） ============
             max_retries = 2
             trade_type = None  # 交易类型：open_long, open_short, add_long, add_short, reverse_long_to_short, reverse_short_to_long
             for attempt in range(max_retries):
@@ -908,7 +926,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                             # 开多仓
                             exchange.create_market_order(symbol, "buy", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
                         elif current_position and current_position["side"] == "long":
-                            # 🆕 支持加仓：HIGH信心时可以在同方向加仓（需启用开关）
+                            # 支持加仓：HIGH信心时可以在同方向加仓（需启用开关）
                             if config.get("enable_add_position", False) and signal_data.get("confidence") == "HIGH":
                                 current_size = float(current_position.get("size", 0) or 0)
                                 # 计算当前仓位价值：合约数量转为基础资产数量，再乘以当前价格
@@ -930,7 +948,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                                     # 直接加仓（同方向开仓会自动追加）
                                     exchange.create_market_order(symbol, "buy", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
                                 else:
-                                    print(f"[{config['display']}] ⚠️ 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
+                                    print(f"[{config['display']}] 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
                             else:
                                 if not config.get("enable_add_position", False):
                                     print(f"[{config['display']}] 已有多头持仓，保持现状（加仓功能已禁用）")
@@ -956,7 +974,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                             # 开空仓
                             exchange.create_market_order(symbol, "sell", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
                         elif current_position and current_position["side"] == "short":
-                            # 🆕 支持加仓：HIGH信心时可以在同方向加仓（需启用开关）
+                            # 支持加仓：HIGH信心时可以在同方向加仓（需启用开关）
                             if config.get("enable_add_position", False) and signal_data.get("confidence") == "HIGH":
                                 current_size = float(current_position.get("size", 0) or 0)
                                 # 计算当前仓位价值：合约数量转为基础资产数量，再乘以当前价格
@@ -978,7 +996,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                                     # 直接加仓（同方向开仓会自动追加）
                                     exchange.create_market_order(symbol, "sell", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
                                 else:
-                                    print(f"[{config['display']}] ⚠️ 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
+                                    print(f"[{config['display']}] 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
                             else:
                                 if not config.get("enable_add_position", False):
                                     print(f"[{config['display']}] 已有空头持仓，保持现状（加仓功能已禁用）")
@@ -994,26 +1012,26 @@ def execute_trade(symbol, signal_data, price_data, config):
                     break  # 成功则跳出重试循环
 
                 except ccxt.InsufficientFunds as e:
-                    # 🆕 捕获51008保证金不足错误
-                    print(f"[{config['display']}] ❌ 保证金不足错误: {e}")
+                    # 捕获51008保证金不足错误
+                    print(f"[{config['display']}] 保证金不足错误: {e}")
 
                     if attempt < max_retries - 1:
                         # 还有重试机会，尝试减少50%数量
-                        print(f"[{config['display']}] 💡 尝试减少50%数量重试...")
+                        print(f"[{config['display']}]  尝试减少50%数量重试...")
                         trade_contracts = adjust_contract_quantity(symbol, trade_contracts * 0.5, round_up=True)
                         trade_amount = contracts_to_base(symbol, trade_contracts)
                         if min_contracts and trade_contracts < min_contracts:
-                            print(f"[{config['display']}] ❌ 减少后仍低于最小张数{min_contracts}，放弃")
+                            print(f"[{config['display']}] 减少后仍低于最小张数{min_contracts}，放弃")
                             return
                         required_margin = current_price * trade_amount / suggested_leverage
                         print(f"[{config['display']}] 新数量: {trade_amount:.6f} ({trade_contracts:.6f}张), 新保证金: {required_margin:.2f} USDT")
                         time.sleep(1)  # 等待1秒后重试
                     else:
-                        print(f"[{config['display']}] ❌ 重试次数已用完，彻底放弃")
+                        print(f"[{config['display']}] 重试次数已用完，彻底放弃")
                         return
 
                 except Exception as e:
-                    print(f"[{config['display']}] ❌ 订单执行失败: {e}")
+                    print(f"[{config['display']}] 订单执行失败: {e}")
                     if attempt < max_retries - 1:
                         print(f"[{config['display']}] 等待2秒后重试...")
                         time.sleep(2)
@@ -1060,7 +1078,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                         safe_float(ts_callback_spread, None) if ts_callback_spread is not None else None,
                     )
             except Exception as e:
-                print(f"[{config['display']}] ⚠️ 设置移动止盈止损时发生异常: {e}")
+                print(f"[{config['display']}] 设置移动止盈止损时发生异常: {e}")
 
             # 记录交易历史（仅在实际执行交易时记录，使用线程锁保护）
             if trade_type is not None:  # 只有实际执行了交易才记录
@@ -1114,7 +1132,7 @@ def execute_trade(symbol, signal_data, price_data, config):
             # with块结束，自动释放order_execution_lock
 
     except Exception as e:
-        print(f"[{config['display']}] ❌ 订单执行失败: {e}")
+        print(f"[{config['display']}] 订单执行失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -1229,7 +1247,7 @@ def run_symbol_cycle(symbol, config):
         # 1. 获取K线数据
         price_data = get_symbol_ohlcv_enhanced(symbol, config)
         if not price_data:
-            print(f"[{config['display']}] ❌ 获取数据失败，跳过")
+            print(f"[{config['display']}] 获取数据失败，跳过")
             return
 
         print(f"[{config['display']}] 当前价格: ${price_data['price']:,.2f} ({price_data['price_change']:+.2f}%)")
@@ -1259,7 +1277,7 @@ def run_symbol_cycle(symbol, config):
         else:
             # 输出当前持仓状态
             if stop_check.get("stop_loss") and stop_check.get("take_profit"):
-                print(f"[{config['display']}] 💡 {stop_check['reason']}")
+                print(f"[{config['display']}]  {stop_check['reason']}")
 
         # 2. AI分析
         signal_data = analyze_with_llm(symbol, price_data, config)
@@ -1309,7 +1327,7 @@ def run_symbol_cycle(symbol, config):
         print(f"[{config['display']}] ✓ 周期完成")
 
     except Exception as e:
-        print(f"[{config.get('display', symbol)}] ❌ 执行失败: {e}")
+        print(f"[{config.get('display', symbol)}] 执行失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -1343,7 +1361,7 @@ def run_all_symbols_parallel(model_display: str):
             try:
                 future.result(timeout=60)  # 60秒超时
             except Exception as e:
-                print(f"[{model_display} | {TRADE_CONFIGS[symbol]['display']}] ⚠️ 任务异常: {e}")
+                print(f"[{model_display} | {TRADE_CONFIGS[symbol]['display']}] 任务异常: {e}")
 
     print("\n" + "=" * 70)
     print(f"✓ [{model_display}] 本轮分析完成")
@@ -1362,9 +1380,9 @@ def main():
 
     test_mode_count = sum(1 for c in TRADE_CONFIGS.values() if c.get("test_mode", True))
     if test_mode_count > 0:
-        print(f"⚠️  {test_mode_count}/{len(TRADE_CONFIGS)} 个交易对处于测试模式")
+        print(f" {test_mode_count}/{len(TRADE_CONFIGS)} 个交易对处于测试模式")
     else:
-        print("🔴 实盘交易模式 - 请谨慎操作！")
+        print("实盘交易模式 - 请谨慎操作！")
 
     print("\n初始化各模型的 OKX 账户...")
     for model_key in MODEL_ORDER:
@@ -1373,7 +1391,7 @@ def main():
         print(f"\n[{ctx.display}] 绑定子账户: {sub_account}")
         with activate_context(ctx):
             if not setup_exchange():
-                print(f"❌ {ctx.display} 交易所初始化失败，程序退出")
+                print(f"{ctx.display} 交易所初始化失败，程序退出")
                 return
             capture_balance_snapshot(ctx)
             refresh_overview_from_context(ctx)

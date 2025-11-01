@@ -296,11 +296,11 @@ body {
 }
 
 .change.positive {
-    color: var(--success-color);
+    color: var(--danger-color);
 }
 
 .change.negative {
-    color: var(--danger-color);
+    color: var(--success-color);
 }
 
 .symbol-tabs {
@@ -351,8 +351,8 @@ body {
     background: rgba(0, 0, 0, 0.2);
 }
 
-.symbol-tab .symbol-change.positive { color: var(--success-color); }
-.symbol-tab .symbol-change.negative { color: var(--danger-color); }
+.symbol-tab .symbol-change.positive { color: var(--danger-color); }
+.symbol-tab .symbol-change.negative { color: var(--success-color); }
 /* 顶部卡片布局 */
 .top-cards {
     display: grid;
@@ -413,13 +413,13 @@ body {
 }
 
 .price-change.positive {
-    color: var(--success-color);
-    background: rgba(52, 168, 83, 0.1);
+    color: var(--danger-color);
+    background: rgba(234, 67, 53, 0.1);
 }
 
 .price-change.negative {
-    color: var(--danger-color);
-    background: rgba(234, 67, 53, 0.1);
+    color: var(--success-color);
+    background: rgba(52, 168, 83, 0.1);
 }
 
 /* 持仓显示 */
@@ -455,11 +455,11 @@ body {
 }
 
 .pnl.positive {
-    color: var(--success-color);
+    color: var(--danger-color);
 }
 
 .pnl.negative {
-    color: var(--danger-color);
+    color: var(--success-color);
 }
 
 /* K线图表 */

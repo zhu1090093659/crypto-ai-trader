@@ -200,7 +200,7 @@ def get_sentiment_indicators(token: str = "BTC") -> Optional[Dict[str, float]]:
                             "data_delay_minutes": data_delay,
                         }
 
-                print("❌ 所有时间段数据都为空")
+                print("所有时间段数据都为空")
                 return None
         return None
     except Exception as e:
@@ -397,7 +397,7 @@ def get_symbol_market(symbol: str) -> Dict:
                     market = ex.market(symbol)
                     ctx.markets[symbol] = market
                 except Exception as e:
-                    print(f"⚠️ 无法获取 {symbol} 市场信息: {e}")
+                    print(f"无法获取 {symbol} 市场信息: {e}")
                     market = {}
         return market or {}
     except Exception:

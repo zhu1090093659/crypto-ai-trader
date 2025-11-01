@@ -150,7 +150,7 @@ def format_accuracy_summary(metrics: Dict) -> str:
     lines.append("  关键观察:")
     lines.append("  - 高信心信号准确率显著优于低信心，应积极寻找HIGH机会")
     lines.append("  - 理想信心度分布: HIGH 25% | MEDIUM 50% | LOW 25%")
-    lines.append("  - ⚠️ 不要过度保守！只在真正不确定时才用LOW")
+    lines.append("  - 不要过度保守！只在真正不确定时才用LOW")
     return "\n".join(lines)
 
 
@@ -249,7 +249,7 @@ def build_trade_frequency_warning(trade_history: List[Dict]) -> str:
     minutes_since_last = (now - last_trade_time).total_seconds() / 60
 
     if minutes_since_last < 15:
-        warnings.append(f"  🔴 警告：距离上次交易仅{minutes_since_last:.1f}分钟，请谨慎操作避免频繁交易！")
+        warnings.append(f"  警告：距离上次交易仅{minutes_since_last:.1f}分钟，请谨慎操作避免频繁交易！")
 
     # 2. 检查最近交易的频率
     if len(recent_10) >= 5:
@@ -260,7 +260,7 @@ def build_trade_frequency_warning(trade_history: List[Dict]) -> str:
         if time_span_hours > 0:
             trades_per_hour = len(recent_10) / time_span_hours
             if trades_per_hour > 2:  # 每小时超过2次交易
-                warnings.append(f"  ⚠️ 提示：最近交易频率较高（{trades_per_hour:.1f}次/小时），建议降低交易频率提高质量")
+                warnings.append(f"  提示：最近交易频率较高（{trades_per_hour:.1f}次/小时），建议降低交易频率提高质量")
 
     # 3. 检查来回反转模式（多->空->多 或 空->多->空）
     if len(recent_10) >= 4:
@@ -275,7 +275,7 @@ def build_trade_frequency_warning(trade_history: List[Dict]) -> str:
                 flip_flop_count += 1
 
         if flip_flop_count >= 2:
-            warnings.append(f"  ⚠️ 提示：检测到{flip_flop_count}次来回反转（如：多→空→多），这种模式通常导致亏损")
+            warnings.append(f"  提示：检测到{flip_flop_count}次来回反转（如：多→空→多），这种模式通常导致亏损")
 
     # 4. 计算最近交易的盈亏情况
     total_pnl = sum(t.get("pnl", 0) for t in recent_10 if "pnl" in t)
@@ -284,13 +284,13 @@ def build_trade_frequency_warning(trade_history: List[Dict]) -> str:
     if len(recent_10) >= 5:
         win_rate = profitable_trades / len(recent_10) * 100
         if total_pnl < 0:
-            warnings.append(f"  💡 分析：最近{len(recent_10)}笔交易累计亏损{abs(total_pnl):.2f} USDT（胜率{win_rate:.0f}%），建议提高信号质量")
+            warnings.append(f"   分析：最近{len(recent_10)}笔交易累计亏损{abs(total_pnl):.2f} USDT（胜率{win_rate:.0f}%），建议提高信号质量")
         elif win_rate < 50:
-            warnings.append(f"  💡 分析：最近{len(recent_10)}笔交易胜率{win_rate:.0f}%，建议更谨慎选择交易时机")
+            warnings.append(f"   分析：最近{len(recent_10)}笔交易胜率{win_rate:.0f}%，建议更谨慎选择交易时机")
 
     # 5. 添加交易建议
     if warnings:
-        warnings.append("\n  💡 建议策略：")
+        warnings.append("\n   建议策略：")
         warnings.append("     • 只在HIGH信心且多个指标共振时才交易")
         warnings.append("     • 避免在15-30分钟内重复开平仓")
         warnings.append("     • 使用HOLD信号耐心等待更好的机会")
@@ -356,114 +356,78 @@ def build_professional_prompt(
 
     # 构建提示词各部分
     prompt_sections = [
-        f"\n  你是专业的加密货币交易分析师 | {config['display']} {config['timeframe']}周期\n",
-        f"\n  【系统运行状态】\n  运行时长: {runtime_minutes}分钟 ({runtime_hours:.1f}小时) | AI分析: {ai_calls}次 | 开仓: {ctx.metrics['trades_opened']}次 | 平仓: {closed_trades}次 | 当前持仓: {open_positions}个\n",
-        "  ⚠️ 重要: 以下所有时间序列数据按 最旧→最新 排列\n",
-        "  【短期序列】最近20周期 = 100分钟 (最旧→最新)\n",
-        "  价格 (USDT):\n" + format_sequence(prices, decimals=2),
-        "\n  VWMA5（成交量加权均线，基于典型价）:\n" + format_sequence(sma5, decimals=2),
-        "\n  VWMA20（成交量加权均线，基于典型价）:\n" + format_sequence(sma20, decimals=2),
-        "\n  VWEMA20（成交量加权指数均线，基于典型价）:\n" + format_sequence(ema20, decimals=2),
-        "\n  RSI (14周期):\n" + format_sequence(rsi, decimals=2),
-        "\n  RSI (7周期,更敏感):\n" + format_sequence(rsi_7, decimals=2),
-        "\n  MACD线:\n" + format_sequence(macd, decimals=2),
-        "\n  成交量 (" + asset_name + "):\n" + format_sequence(volume, decimals=2),
-        "\n  【你的历史判断验证】最近50次 (最旧→最新)\n" + history_table + "\n",
+        f"\n  你是加密货币交易分析师 | {config['display']} {config['timeframe']}周期\n",
+        f"  【系统】运行{runtime_minutes}分钟({runtime_hours:.1f}h) | AI:{ai_calls} | 开:{ctx.metrics['trades_opened']} | 平:{closed_trades} | 持仓:{open_positions}\n",
+        "  注：序列按 最旧→最新\n",
+        "  【短期(20)】\n",
+        "  价格(USDT):\n" + format_sequence(prices, decimals=2),
+        "\n  VWMA5:\n" + format_sequence(sma5, decimals=2),
+        "\n  VWMA20:\n" + format_sequence(sma20, decimals=2),
+        "\n  VWEMA20:\n" + format_sequence(ema20, decimals=2),
+        "\n  RSI14:\n" + format_sequence(rsi, decimals=2),
+        "\n  RSI7:\n" + format_sequence(rsi_7, decimals=2),
+        "\n  MACD:\n" + format_sequence(macd, decimals=2),
+        "\n  量(" + asset_name + "):\n" + format_sequence(volume, decimals=2),
+        "\n  【历史信号验证-近50】\n" + history_table + "\n",
         accuracy_summary + "\n",
-        "\n  【实际交易历史】最近20次真实执行的交易 (最旧→最新)\n",
-        "  ⚠️ 这是实际下单记录，与上面的判断验证不同。上面是所有信号，这里是真正执行的交易。\n",
+        "  【实盘交易-近20】(与上述信号不同：此处为已执行)\n",
         trade_history_table,
         build_trade_frequency_warning(trade_history),
-        "\n  【当前市场状况】\n",
-        f"  当前价格: ${price_data['price']:,} (相比上周期: {price_data.get('price_change', 0):+.2f}%)\n"
-        f"  当前持仓: {position_status}\n"
-        f"  市场情绪: {sentiment_text or '暂无数据'}\n",
-        f"  资金费率: {funding_rate_text}\n" f"  持仓量: {open_interest_text}\n",
-        "  \n  技术指标详情:\n"
-        f"  - 短期趋势: {price_data['trend_analysis'].get('short_term', 'N/A')}\n"
-        f"  - 中期趋势: {price_data['trend_analysis'].get('medium_term', 'N/A')}\n"
-        f"  - VWMA50: ${tech.get('sma_50', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('sma_50', 0)) / tech.get('sma_50', 1) * 100):+.2f}%)\n"
-        f"  - VWEMA20: ${tech.get('ema_20', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('ema_20', 0)) / tech.get('ema_20', 1) * 100):+.2f}%)\n"
-        f"  - VWEMA50: ${tech.get('ema_50', 0):.2f} (价格偏离: {((price_data['price'] - tech.get('ema_50', 0)) / tech.get('ema_50', 1) * 100):+.2f}%)\n"
+        "  【市场概览】\n",
+        f"  价: ${price_data['price']:,} ({price_data.get('price_change', 0):+.2f}%)\n"
+        f"  持仓: {position_status}\n"
+        f"  情绪: {sentiment_text or '暂无数据'}\n",
+        f"  资金费率: {funding_rate_text} | 持仓量: {open_interest_text}\n",
+        "  【技术摘要】\n"
+        f"  - 短期: {price_data['trend_analysis'].get('short_term', 'N/A')}\n"
+        f"  - 中期: {price_data['trend_analysis'].get('medium_term', 'N/A')}\n"
+        f"  - VWMA50: ${tech.get('sma_50', 0):.2f} (偏离: {((price_data['price'] - tech.get('sma_50', 0)) / tech.get('sma_50', 1) * 100):+.2f}%)\n"
+        f"  - VWEMA20: ${tech.get('ema_20', 0):.2f} (偏离: {((price_data['price'] - tech.get('ema_20', 0)) / tech.get('ema_20', 1) * 100):+.2f}%)\n"
+        f"  - VWEMA50: ${tech.get('ema_50', 0):.2f} (偏离: {((price_data['price'] - tech.get('ema_50', 0)) / tech.get('ema_50', 1) * 100):+.2f}%)\n"
         f"  - RSI(14): {tech.get('rsi', 0):.2f} | RSI(7): {tech.get('rsi_7', 0):.2f}\n"
-        f"  - MACD线: {tech.get('macd', 0):.4f} | MACD信号线: {tech.get('macd_signal', 0):.4f}\n"
-        f"  - MACD柱状图: {tech.get('macd_histogram', 0):.4f} ({'金叉看涨' if tech.get('macd_histogram', 0) > 0 else '死叉看跌'})\n"
-        f"  - 布林带上轨: ${tech.get('bb_upper', 0):.2f} | 下轨: ${tech.get('bb_lower', 0):.2f}\n"
-        f"  - 布林带位置: {tech.get('bb_position', 0):.2%} ({'超买区' if tech.get('bb_position', 0) > 0.8 else '超卖区' if tech.get('bb_position', 0) < 0.2 else '正常区'})\n"
-        f"  - ATR(14): ${tech.get('atr', 0):.2f} | ATR(3): ${tech.get('atr_3', 0):.2f} (波动率参考)\n"
-        f"  - 成交量: {price_data.get('volume', 0):.2f} {asset_name} | 20周期均量: {tech.get('volume_ma', 0):.2f}\n"
-        f"  - 成交量比率: {tech.get('volume_ratio', 0):.2f}倍 ({'放量' if tech.get('volume_ratio', 0) > 1.2 else '缩量' if tech.get('volume_ratio', 0) < 0.8 else '正常'})\n"
-        f"  - 支撑位: ${levels.get('static_support', 0):.2f} | 阻力位: ${levels.get('static_resistance', 0):.2f}\n",
+        f"  - MACD: {tech.get('macd', 0):.4f} | 信号: {tech.get('macd_signal', 0):.4f} | 柱: {tech.get('macd_histogram', 0):.4f}\n"
+        f"  - 布林: 上 ${tech.get('bb_upper', 0):.2f} | 下 ${tech.get('bb_lower', 0):.2f} | 位 {tech.get('bb_position', 0):.2%}\n"
+        f"  - ATR: ${tech.get('atr', 0):.2f} | ATR(3): ${tech.get('atr_3', 0):.2f}\n"
+        f"  - 量: {price_data.get('volume', 0):.2f} {asset_name} | 均量20: {tech.get('volume_ma', 0):.2f} | 比率: {tech.get('volume_ratio', 0):.2f}x\n"
+        f"  - 位: 支撑 ${levels.get('static_support', 0):.2f} | 阻力 ${levels.get('static_resistance', 0):.2f}\n",
         position_table,
-        "  【信心度判断标准】⭐ 重要\n"
-        "  HIGH (高信心) - 同时满足以下条件时使用:\n"
-        "  ✓ 多个技术指标强烈共振（VWEMA/VWMA成交量加权均线、RSI双周期、MACD金叉/死叉、成交量、ATR波动率）\n"
-        "  ✓ 价格突破关键支撑/阻力位，且有明显成交量配合（成交量比率>1.2）\n"
-        "  ✓ 形态清晰（如金叉/死叉、突破/跌破均线、布林带突破等）\n"
-        "  ✓ 资金费率和持仓量支持该方向判断\n"
-        "  ✓ 历史数据显示HIGH准确率最高，应果断使用\n"
-        "  MEDIUM (中信心) - 以下情况使用:\n"
-        "  • 技术指标有2-3个支持该方向，但存在1个分歧\n"
-        "  • 趋势方向明确但动能不强（成交量一般，ATR未放大）\n"
-        "  • 突破但未完全确认（如价格在VWEMA20和VWEMA50之间）\n"
-        "  • 应作为主要选择，占比约50%\n"
-        "  LOW (低信心) - 仅在以下情况使用:\n"
-        "  • 技术指标严重分歧（多空信号各半）\n"
-        "  • 盘整震荡，完全无方向（布林带收窄，ATR萎缩）\n"
-        "  • 成交量极度萎缩（成交量比率<0.6）\n"
-        "  • 注意：LOW准确率最低，应尽量避免，占比应<30%\n"
-        "  【信号选择指南】⭐ 重要\n"
-        "  根据技术指标综合分析，选择BUY/SELL/CLOSE/HOLD：\n"
-        "  • BUY: 技术指标显示上涨趋势（均线排列、RSI双周期、MACD金叉、放量、资金费率正向等）\n"
-        "  • SELL: 技术指标显示下跌趋势时，应选择SELL做空（⚠️ SELL不是平仓，而是做空机会）\n"
-        "  • CLOSE: ⭐ 新增平仓信号 - 当有持仓且满足以下条件时使用：\n"
-        "     ✓ 趋势反转信号明确（如多头持仓时出现死叉、跌破关键支撑）\n"
-        "     ✓ 接近或触及止盈止损位（盈利>3%或亏损>2%）\n"
-        "     ✓ 技术指标显示趋势衰竭（RSI背离、成交量萎缩、布林带收窄）\n"
-        "     ✓ 市场情绪恶化（资金费率异常、持仓量骤降）\n"
-        "     ⚠️ 使用CLOSE时无需填写order_quantity和leverage（平仓会全平当前持仓）\n"
-        "  • HOLD: 技术指标分歧或方向不明确时选择持有\n"
-        "  ⚠️ 重要：不要只关注上涨机会，当下跌趋势明确时也应果断选择SELL\n"
-        "  【决策要求】\n"
-        "  1️⃣ 综合分析所有技术指标 + 50次历史验证 + 统计规律 + 资金费率/持仓量\n"
-        "  2️⃣ 积极寻找HIGH机会: 当多个指标共振时应果断给HIGH（无论是上涨还是下跌趋势）\n"
-        "  3️⃣ 避免过度保守: MEDIUM和HIGH应是主流(共75%)，LOW应是少数(25%)\n"
-        "  4️⃣ 平衡多空机会: 综合分析技术指标，不要只关注上涨，当下跌趋势明确时也应选择SELL\n"
-        "  5️⃣ ⭐ 持仓管理优化：评估当前持仓是否需要CLOSE平仓、加仓或反向开仓\n"
-        "  6️⃣ 注意ATR波动率：高波动时需更宽的止损，低波动时可能预示突破\n"
-        "  7️⃣ 🔴 防止频繁交易：参考【实际交易历史】和警告提示，避免在短时间内重复交易\n"
-        "     • 如果距离上次交易<15分钟，除非有极强的反转信号，否则应选择HOLD\n"
-        "     • 如果最近交易频率过高或胜率低，提高交易标准，只选择HIGH信心的机会\n"
-        "     • 宁可错过机会，也不要频繁交易增加手续费成本\n"
-        "  8️⃣ ⚠️ 重要：数量选择规则\n"
-        f"     - 先确定 confidence (HIGH/MEDIUM/LOW)\n"
-        f"     - 再确定 leverage ({config['leverage_min']}x/{config['leverage_default']}x/{config['leverage_max']}x)\n"
-        f"     - 在建议表中找到对应【信心等级】的【杠杆倍数】那一行的数量\n"
-        f"     - 必须完全复制该数量值（6位小数），禁止自行计算或四舍五入\n"
-        f"     - 例如：confidence=MEDIUM, leverage=3x → 找到「中信心(MEDIUM)」栏下的「3x:」那一行的数量\n"
-        f"     - 注意：signal=CLOSE时，无需填写order_quantity和leverage\n"
-        "  9️⃣ ⭐ 止盈止损设置原则\n"
-        "     • 根据ATR波动率、支撑/阻力位、信心等级综合确定\n"
-        "     • 建议范围：止损2-8%，止盈4-15%（根据信心和波动率调整）\n"
-        "     • 风险收益比：止盈距离应≥止损距离×1.5（推荐1:2或更高）\n"
-        "     • CLOSE信号：填0即可；HOLD信号：填当前观望区间\n"
-        "     • ⚠️ 避免过窄（<1%）或风险收益比倒挂\n",
-        "  ⭐ 额外：请同时给出 移动止盈/止损 参数（用于交易所追踪止盈/止损）：\n"
-        "     - ts_active_px: 激活价格（达到该价后开始跟踪）\n"
-        "     - ts_callback_rate: 回调比例(%)，如 0.8 表示0.8%（或提供 ts_callback_spread 绝对价差，二选一）\n"
-        "     - 建议：结合ATR/入场价/止盈价，给出合理的激活价与回调幅度\n"
-        "  请用JSON格式返回:\n"
+        "  【信心度】\n"
+        "  - HIGH: 多指标强共振 + 放量 + 关键位突破/跌破\n"
+        "  - MEDIUM: 2-3指标支持，方向明确但动能一般/待确认\n"
+        "  - LOW: 指标分歧/震荡/量能不足（慎用）\n"
+        "  【信号选择】\n"
+        "  - BUY: 上涨信号占优（RSI上行、MACD金叉、上穿均线并放量等）\n"
+        "  - SELL: 下跌信号占优（RSI下行、MACD死叉、跌破均线并放量等）——做空开仓\n"
+        "  - CLOSE: 有持仓且出现反转/触及止盈止损/动能衰竭/情绪恶化\n"
+        "  - HOLD: 方向不明或信号冲突\n"
+        "  - 记：SELL是做空机会，不是平仓\n"
+        "  【决策规则】\n"
+        "  1) 综合 技术 + 历史准确率 + 资金费率/持仓量\n"
+        "  2) 积极找HIGH；MEDIUM为主；LOW尽量少\n"
+        "  3) 多空均衡：明确下跌时应选择SELL\n"
+        "  4) 持仓管理：必要时CLOSE而非被动止损\n"
+        "  5) 频率：距上次<15分钟优先HOLD；频率高/胜率低→提高门槛\n"
+        "  【下单数量】\n"
+        f"  流程：确定confidence → 选{config['leverage_min']}/{config['leverage_default']}/{config['leverage_max']}x → 从建议表复制对应数量（6位小数，勿改）\n"
+        "  - signal=CLOSE 时无需填写 leverage 与 order_quantity\n"
+        "  【止盈止损】\n"
+        "  - 依据ATR/支撑阻力/信心：止损2-8%，止盈4-15%，RR≥1:1.5\n"
+        "  - CLOSE填0；HOLD写观察区间；避免过窄(<1%)\n"
+        "  【移动止盈/止损】\n"
+        "  - ts_active_px: 激活价；ts_callback_rate(%) 或 ts_callback_spread(价差)\n"
+        "  - 建议结合ATR/入场价/止盈价给出\n"
+        "  请仅返回JSON：\n"
         "  {\n"
         '    "signal": "BUY|SELL|CLOSE|HOLD",\n'
-        '    "reason": "结合20周期趋势+历史准确率的分析(50字内)",\n'
-        '    "stop_loss": 具体价格（根据ATR、支撑/阻力位、风险收益比综合确定，详见规则9️⃣）,\n'
-        '    "take_profit": 具体价格（根据ATR、支撑/阻力位、风险收益比综合确定，详见规则9️⃣）,\n'
+        '    "reason": "20周期+历史准确率综合(≤50字)",\n'
+        '    "stop_loss": 价格,\n'
+        '    "take_profit": 价格,\n'
         '    "confidence": "HIGH|MEDIUM|LOW",\n'
-        f"    \"leverage\": {config['leverage_min']}-{config['leverage_max']}范围整数（CLOSE信号时可省略）,\n"
-        '    "order_quantity": 从建议表中对应【信心等级+杠杆倍数】行的数量（完全复制，6位小数）（CLOSE信号时可省略）,\n'
-        '    "ts_active_px": 可选-移动止盈止损激活价格（HOLD/CLOSE可省略）,\n'
-        '    "ts_callback_rate": 可选-回调比例(%)，如0.8代表0.8%（与ts_callback_spread二选一）,\n'
-        '    "ts_callback_spread": 可选-回调绝对价差（与ts_callback_rate二选一）\n'
+        f"    \"leverage\": {config['leverage_min']}-{config['leverage_max']}（CLOSE可省略）,\n"
+        '    "order_quantity": 建议表中对应数量（6位小数，CLOSE可省略）,\n'
+        '    "ts_active_px": 可省略(HOLD/CLOSE),\n'
+        '    "ts_callback_rate": %，与ts_callback_spread二选一,\n'
+        '    "ts_callback_spread": 价差（可选）\n'
         "  }\n"
         "  ---",
     ]
@@ -476,44 +440,29 @@ def build_professional_prompt(
 
 def build_system_prompt(config: Dict) -> str:
     """构建系统提示词"""
-    return f"""你是专业的加密货币量化交易分析师，擅长多维度技术分析和风险控制。
+    return f"""你是加密货币量化交易分析师，专注多周期与风险控制。
 
-【你的专长】
-- 精通多时间周期趋势分析（VWMA/VWEMA成交量加权均线系统，基于典型价）
-- 擅长多指标共振分析（RSI双周期、MACD完整系统、布林带、ATR波动率）
-- 理解市场微观结构（成交量分析、资金费率、持仓量）
-- 具备风险管理意识（ATR动态止损、仓位管理）
+【专长】
+- 趋势：VWMA/VWEMA基于典型价
+- 共振：RSI双周期、MACD、布林带、ATR
+- 微观：成交量、资金费率、持仓量
+- 风控：ATR动态止损、仓位管理
 
-【分析原则】
-1. 多指标验证：不依赖单一指标，寻找多个指标共振
-2. 趋势为王：顺势交易，在明确趋势中寻找高概率机会
-3. 风险优先：考虑ATR波动率，动态调整止损位置
-4. 数据驱动：基于历史准确率统计，优化决策质量
-5. 市场情绪：结合资金费率和持仓量判断市场情绪
+【任务】
+分析 {config['display']} 的 {config['timeframe']} 周期并给出决策，仅输出规范JSON。
 
-【当前任务】
-分析 {config['display']} 的 {config['timeframe']} 周期数据，给出交易决策。
-严格按照JSON格式返回，包含所有必需字段。
+【信心定义】
+- HIGH：多指标强共振+量能配合+关键位突破/跌破
+- MEDIUM：2-3指标支持，方向明确但动能一般/待确认
+- LOW：指标分歧或震荡
 
-【决策要求】
-- HIGH信心：多个指标强烈共振（均线、RSI双周期、MACD、成交量、ATR）
-- MEDIUM信心：2-3个指标支持，存在分歧但方向明确
-- LOW信心：指标分歧严重或盘整震荡
-- 注意：根据历史统计，HIGH准确率最高，应积极寻找高确定性机会
+【信号含义】
+- BUY：上涨信号占优
+- SELL：下跌信号占优（做空开仓，不是平仓）
+- CLOSE：持仓存在且出现反转/触及止盈止损/动能衰竭
+- HOLD：信号冲突或无方向
 
-【⚠️ 重要：多空平衡与平仓管理】
-这是永续合约双向交易系统，必须平衡做多、做空和平仓：
-- BUY：当技术指标显示上涨趋势时（RSI上升、MACD金叉、价格从VWMA上穿VWEMA且放量、价格从VWMA上方下跌到VWMA附近且缩量等）
-- SELL：当技术指标显示下跌趋势时（RSI下降、MACD死叉、价格击穿VWMA且放量、价格从VWMA下方上涨到VWMA附近且缩量等）
-- CLOSE：⭐ 当有持仓且应该平仓时使用（趋势反转、触及止盈止损、技术指标衰竭）
-- HOLD：只在技术指标严重分歧或震荡时使用
-
-⚠️ 不要只关注做多机会！下跌趋势同样是交易机会！
-当看到明确的下跌信号时（如：价格跌破VWEMA20/50、MACD死叉、RSI<40、成交量放大），应果断选择SELL做空。
-SELL不是平仓，而是开空仓获利的机会！
-
-⭐ 平仓时机管理：
-- 持有多头时，如出现明确下跌信号（死叉、跌破支撑），应选择CLOSE平仓，而不是等待止损
-- 持有空头时，如出现明确上涨信号（金叉、突破阻力），应选择CLOSE平仓，而不是等待止损
-- 当盈利达到止盈目标附近（如>3%），也应考虑CLOSE落袋为安
-- CLOSE信号可以避免被动止损，实现主动风险控制"""
+【执行原则】
+- 历史准确率优先；积极寻找HIGH；MEDIUM为主；LOW慎用
+- 多空均衡：明确下跌时应选择SELL
+- 出现反转信号或接近目标优先CLOSE，主动控险"""

@@ -70,7 +70,7 @@ def start_bot():
             initialize_data()
             print("✅ 启动前初始化完成")
         except Exception as e:
-            print(f"❌ 启动前初始化失败: {e}")
+            print(f"启动前初始化失败: {e}")
             return jsonify({"ok": False, "running": False, "message": f"初始化失败: {e}"}), 500
 
         # 启动交易主线程
@@ -284,7 +284,7 @@ def initialize_data():
         deepseekok2.record_overview_point(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         print("✅ 初始化完成\n")
     except Exception as e:
-        print(f"❌ 初始化失败: {e}")
+        print(f"初始化失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -314,7 +314,7 @@ if __name__ == "__main__":
     PORT = 8080
     print("\n" + "=" * 60)
     print("🌐 Web管理界面启动成功！")
-    print(f"📊 访问地址: http://localhost:{PORT}")
+    print(f"访问地址: http://localhost:{PORT}")
     print(f"📁 模板目录: {app.template_folder}")
     print(f"📁 静态目录: {app.static_folder}")
     print("=" * 60 + "\n")
