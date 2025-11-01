@@ -549,7 +549,16 @@ async function updateDashboard() {
             formatCurrency(data.account_summary.available_balance || 0);
         document.getElementById('totalEquity').textContent =
             formatCurrency(data.account_summary.total_equity || 0);
-        document.getElementById('lastUpdate').textContent = data.account_summary.last_update || '--';
+        // 顶部右侧时间：取所有交易对的最新更新时间
+        const symbolTimes = (data.symbols || [])
+            .map(s => s && s.last_update)
+            .filter(Boolean);
+        if (symbolTimes.length > 0) {
+            const latest = symbolTimes.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+            document.getElementById('lastUpdate').textContent = formatTimestamp(latest);
+        } else {
+            document.getElementById('lastUpdate').textContent = '--';
+        }
     } catch (error) {
         console.error('仪表板更新失败:', error);
     }
