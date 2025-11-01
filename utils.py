@@ -13,9 +13,10 @@ from __future__ import annotations
 import os
 import time
 from datetime import datetime
+import logging
 from threading import Event
 from typing import Optional
-
+logger = logging.getLogger(__name__)
 
 def clamp_value(value, min_val, max_val):
     """将 value 限制在 [min_val, max_val] 区间内。
@@ -78,9 +79,9 @@ def wait_for_next_period() -> int:
     display_seconds = 60 - current_second if current_second > 0 else 0
 
     if display_minutes > 0:
-        print(f"🕒 等待 {display_minutes} 分 {display_seconds} 秒到整点...")
+        logger.info(f"🕒 等待 {display_minutes} 分 {display_seconds} 秒到整点...")
     else:
-        print(f"🕒 等待 {display_seconds} 秒到整点...")
+        logger.info(f"🕒 等待 {display_seconds} 秒到整点...")
 
     return max(0, seconds_to_wait)
 

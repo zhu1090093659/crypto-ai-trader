@@ -7,6 +7,7 @@
 - 需要的配置通过 config.settings 导入（如 TRADE_CONFIGS）。
 """
 import os
+import logging
 import threading
 from collections import defaultdict
 from datetime import datetime
@@ -16,6 +17,8 @@ import ccxt
 from openai import OpenAI
 
 from config.settings import TRADE_CONFIGS
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["ModelContext"]
 
@@ -36,12 +39,7 @@ class ModelContext:
             markets = self.exchange.load_markets()
             self.markets = {symbol: markets.get(symbol) for symbol in TRADE_CONFIGS if symbol in markets}
         except Exception as e:
-            print(f"{self.display} 加载市场信息失败")
-            print(f"   错误类型: {type(e).__name__}")
-            print(f"   错误信息: {str(e)}")
-            if hasattr(e, "response") and e.response:
-                print(f'   HTTP状态码: {getattr(e.response, "status_code", "未知")}')
-                print(f'   响应内容: {getattr(e.response, "text", "无")[:500]}')
+            logger.warning(f"{self.display} 加载市场信息失败: {type(e).__name__}: {str(e)}")
         # 历史与状态容器
         self.signal_history = defaultdict(list)
         self.price_history = defaultdict(list)
@@ -78,11 +76,11 @@ class ModelContext:
         sub_account = os.getenv(f"OKX_SUBACCOUNT_{suffix}")
 
         # 打印配置加载状态（隐藏敏感信息）
-        print(f"[{self.display}] OKX API 配置检查:")
-        print(f'   API Key: {"已配置" if api_key else "未配置"} (前6位: {api_key[:6] if api_key else "无"}...)')
-        print(f'   Secret: {"已配置" if secret else "未配置"} (前6位: {secret[:6] if secret else "无"}...)')
-        print(f'   Password: {"已配置" if password else "未配置"}')
-        print(f'   子账户: {sub_account if sub_account else "使用主账户"}')
+        logger.info(f"[{self.display}] OKX API 配置检查:")
+        logger.info(f'   API Key: {"已配置" if api_key else "未配置"} (前6位: {api_key[:6] if api_key else "无"}...)')
+        logger.info(f'   Secret: {"已配置" if secret else "未配置"} (前6位: {secret[:6] if secret else "无"}...)')
+        logger.info(f'   Password: {"已配置" if password else "未配置"}')
+        logger.info(f'   子账户: {sub_account if sub_account else "使用主账户"}')
 
         if not all([api_key, secret, password]):
             raise RuntimeError(
@@ -96,7 +94,7 @@ class ModelContext:
         proxies = None
         if proxy:
             proxies = {"http": proxy, "https": proxy}
-            print(f"   使用代理: {proxy}")
+            logger.info(f"   使用代理: {proxy}")
 
         client = ccxt.okx(
             {

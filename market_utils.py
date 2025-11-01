@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
+import logging
 from typing import Dict, Optional
 
 import pandas as pd
 import requests
+
+logger = logging.getLogger(__name__)
 
 # ==================== 懒加载核心对象 ====================
 
@@ -108,7 +111,7 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df = df.bfill().ffill()
         return df
     except Exception as e:
-        print(f"技术指标计算失败: {e}")
+        logger.exception(f"技术指标计算失败: {e}")
         return df
 
 
@@ -135,7 +138,7 @@ def get_support_resistance_levels(df: pd.DataFrame, lookback: int = 20) -> Dict[
             "price_vs_support": float(((current_price - support_level) / support_level) * 100),
         }
     except Exception as e:
-        print(f"支撑阻力计算失败: {e}")
+        logger.exception(f"支撑阻力计算失败: {e}")
         return {}
 
 
@@ -191,7 +194,7 @@ def get_sentiment_indicators(token: str = "BTC") -> Optional[Dict[str, float]]:
                         negative = sentiment["CO-A-02-02"]
                         net_sentiment = positive - negative
                         data_delay = int((datetime.now() - datetime.strptime(period["startTime"], "%Y-%m-%d %H:%M:%S")).total_seconds() // 60)
-                        print(f"✅ 使用情绪数据时间: {period['startTime']} (延迟: {data_delay}分钟)")
+                        logger.info(f"✅ 使用情绪数据时间: {period['startTime']} (延迟: {data_delay}分钟)")
                         return {
                             "positive_ratio": positive,
                             "negative_ratio": negative,
@@ -200,11 +203,11 @@ def get_sentiment_indicators(token: str = "BTC") -> Optional[Dict[str, float]]:
                             "data_delay_minutes": data_delay,
                         }
 
-                print("所有时间段数据都为空")
+                logger.info("所有时间段数据都为空")
                 return None
         return None
     except Exception as e:
-        print(f"情绪指标获取失败: {e}")
+        logger.warning(f"情绪指标获取失败: {e}")
         return None
 
 
@@ -231,7 +234,7 @@ def get_market_trend(df: pd.DataFrame) -> Dict[str, object]:
             "rsi_level": float(df["rsi"].iloc[-1]),
         }
     except Exception as e:
-        print(f"趋势分析失败: {e}")
+        logger.exception(f"趋势分析失败: {e}")
         return {}
 
 
@@ -239,7 +242,7 @@ def get_symbol_ohlcv_enhanced(symbol: str, config: Dict) -> Optional[Dict]:
     """增强版：获取交易对 K 线数据并计算技术指标（多交易对版本）。"""
     ex = _get_exchange()
     if ex is None:
-        print("[get_symbol_ohlcv_enhanced] 未能获取交易所实例 exchange")
+        logger.warning("[get_symbol_ohlcv_enhanced] 未能获取交易所实例 exchange")
         return None
     try:
         # 获取 K 线数据
@@ -292,12 +295,7 @@ def get_symbol_ohlcv_enhanced(symbol: str, config: Dict) -> Optional[Dict]:
             "full_data": df,
         }
     except Exception as e:
-        print(f"[{config.get('display', symbol)}] 获取K线数据失败")
-        print(f"   错误类型: {type(e).__name__}")
-        print(f"   错误信息: {str(e)}")
-        if hasattr(e, "response") and getattr(e, "response"):
-            print(f"   HTTP状态码: {getattr(e.response, 'status_code', '未知')}")
-            print(f"   响应内容: {getattr(e.response, 'text', '无')[:500]}")
+        logger.exception(f"[{config.get('display', symbol)}] 获取K线数据失败")
         import traceback
 
         traceback.print_exc()
@@ -308,7 +306,7 @@ def get_funding_rate(symbol: str) -> Optional[Dict[str, float]]:
     """获取资金费率（永续合约）。"""
     ex = _get_exchange()
     if ex is None:
-        print("[get_funding_rate] 未能获取交易所实例 exchange")
+        logger.warning("[get_funding_rate] 未能获取交易所实例 exchange")
         return None
     try:
         info = ex.fetch_funding_rate(symbol)
@@ -322,7 +320,7 @@ def get_funding_rate(symbol: str) -> Optional[Dict[str, float]]:
             "funding_timestamp": ts,
         }
     except Exception as e:
-        print(f"[{symbol}] 获取资金费率失败: {e}")
+        logger.warning(f"[{symbol}] 获取资金费率失败: {e}")
         return None
 
 
@@ -330,7 +328,7 @@ def get_open_interest(symbol: str) -> Optional[Dict[str, float]]:
     """获取持仓量（Open Interest）。"""
     ex = _get_exchange()
     if ex is None:
-        print("[get_open_interest] 未能获取交易所实例 exchange")
+        logger.warning("[get_open_interest] 未能获取交易所实例 exchange")
         return None
     try:
         oi_info = ex.fetch_open_interest(symbol)
@@ -340,7 +338,7 @@ def get_open_interest(symbol: str) -> Optional[Dict[str, float]]:
             "timestamp": oi_info.get("timestamp", 0),
         }
     except Exception as e:
-        print(f"[{symbol}] 获取持仓量失败: {e}")
+        logger.warning(f"[{symbol}] 获取持仓量失败: {e}")
         return None
 
 
@@ -351,7 +349,7 @@ def get_current_position(symbol: Optional[str] = None) -> Optional[Dict]:
     """
     ex = _get_exchange()
     if ex is None:
-        print("[get_current_position] 未能获取交易所实例 exchange")
+        logger.warning("[get_current_position] 未能获取交易所实例 exchange")
         return None
     try:
         symbol = symbol or "BTC/USDT:USDT"
@@ -371,7 +369,7 @@ def get_current_position(symbol: Optional[str] = None) -> Optional[Dict]:
                     }
         return None
     except Exception as e:
-        print(f"[{symbol}] 获取持仓失败: {e}")
+        logger.exception(f"[{symbol}] 获取持仓失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -397,7 +395,7 @@ def get_symbol_market(symbol: str) -> Dict:
                     market = ex.market(symbol)
                     ctx.markets[symbol] = market
                 except Exception as e:
-                    print(f"无法获取 {symbol} 市场信息: {e}")
+                    logger.warning(f"无法获取 {symbol} 市场信息: {e}")
                     market = {}
         return market or {}
     except Exception:

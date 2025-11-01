@@ -11,12 +11,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 导入主程序
 import deepseekok2
+from config.settings import _configure_logging_once  # ensure logging configured
 import web_data
 
 # 明确指定模板和静态文件路径
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), static_folder=os.path.join(BASE_DIR, "static"))
 DEFAULT_MODEL = deepseekok2.DEFAULT_MODEL_KEY
 CORS(app)
+logger = logging.getLogger(__name__)
 
 # 交易机器人线程句柄（便于启停）
 bot_thread: threading.Thread | None = None
@@ -66,11 +68,11 @@ def start_bot():
 
         # 阻塞执行一次初始化，避免与交易循环并发
         try:
-            print("⏳ 正在执行启动前初始化（initialize_data）...")
+            logger.info("⏳ 正在执行启动前初始化（initialize_data）...")
             initialize_data()
-            print("✅ 启动前初始化完成")
+            logger.info("✅ 启动前初始化完成")
         except Exception as e:
-            print(f"启动前初始化失败: {e}")
+            logger.exception(f"启动前初始化失败: {e}")
             return jsonify({"ok": False, "running": False, "message": f"初始化失败: {e}"}), 500
 
         # 启动交易主线程
@@ -270,21 +272,21 @@ def list_models():
 def initialize_data():
     """启动时立即初始化所有交易对数据"""
     try:
-        print("\n正在初始化多模型数据...")
+        logger.info("正在初始化多模型数据...")
 
         # 逐模型进行一次完整轮询
         for model_key in deepseekok2.MODEL_ORDER:
             ctx = deepseekok2.MODEL_CONTEXTS[model_key]
-            print(f"→ {ctx.display} 初始化")
+            logger.info(f"→ {ctx.display} 初始化")
             with deepseekok2.activate_context(ctx):
                 deepseekok2.run_all_symbols_parallel(ctx.display)
                 deepseekok2.capture_balance_snapshot(ctx)
                 deepseekok2.refresh_overview_from_context(ctx)
 
         deepseekok2.record_overview_point(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        print("✅ 初始化完成\n")
+        logger.info("✅ 初始化完成")
     except Exception as e:
-        print(f"初始化失败: {e}")
+        logger.exception(f"初始化失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -297,14 +299,14 @@ def run_trading_bot():
 
 if __name__ == "__main__":
     # 立即初始化数据
-    print("\n" + "=" * 60)
-    print("🚀 启动多交易对交易机器人Web监控...")
-    print("=" * 60 + "\n")
+    logger.info("=" * 60)
+    logger.info("🚀 启动多交易对交易机器人Web监控...")
+    logger.info("=" * 60)
 
     # initialize_data()
 
     # 默认不自动启动交易机器人，可在前端通过“电源”按钮启动
-    print("⏹ 交易机器人默认未启动。可在前端点击右上角电源按钮启动。")
+    logger.info("⏹ 交易机器人默认未启动。可在前端点击右上角电源按钮启动。")
 
     # 禁用Flask/Werkzeug的HTTP请求日志输出
     log = logging.getLogger("werkzeug")
@@ -312,11 +314,11 @@ if __name__ == "__main__":
 
     # 启动Web服务器
     PORT = 8080
-    print("\n" + "=" * 60)
-    print("🌐 Web管理界面启动成功！")
-    print(f"访问地址: http://localhost:{PORT}")
-    print(f"📁 模板目录: {app.template_folder}")
-    print(f"📁 静态目录: {app.static_folder}")
-    print("=" * 60 + "\n")
+    logger.info("=" * 60)
+    logger.info("🌐 Web管理界面启动成功！")
+    logger.info(f"访问地址: http://localhost:{PORT}")
+    logger.info(f"📁 模板目录: {app.template_folder}")
+    logger.info(f"📁 静态目录: {app.static_folder}")
+    logger.info("=" * 60)
 
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

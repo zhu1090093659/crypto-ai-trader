@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import threading
+import logging
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -43,6 +44,8 @@ from utils import (
     sleep_interruptible,
     wait_for_next_period,
 )
+
+logger = logging.getLogger(__name__)
 
 # ==================== 多模型上下文管理 ====================
 
@@ -161,10 +164,10 @@ def place_trailing_stop_order(symbol: str, pos_side: str, contracts_sz: float, t
 
         # 原生 OKX v5 接口
         resp = exchange.privatePostTradeOrderAlgo(payload)
-        print(f"[OKX] ✓ 已创建移动止盈止损: posSide={pos_side} side={side} sz={sz_val} activePx={ts_active_px} rate={ts_callback_rate} spread={ts_callback_spread}")
+        logger.info(f"[OKX] ✓ 已创建移动止盈止损: posSide={pos_side} side={side} sz={sz_val} activePx={ts_active_px} rate={ts_callback_rate} spread={ts_callback_spread}")
         return resp
     except Exception as e:
-        print(f"[OKX] 创建移动止盈止损失败: {e}")
+        logger.warning(f"[OKX] 创建移动止盈止损失败: {e}")
         return None
 
 def request_stop_trading_bot() -> None:
@@ -195,7 +198,7 @@ for model_key in ENABLED_MODELS:
     if model_key in MODEL_METADATA:
         MODEL_CONTEXTS[model_key] = ModelContext(model_key, MODEL_METADATA[model_key])
     else:
-        print(f"未识别的模型标识: {model_key}，已跳过。")
+        logger.warning(f"未识别的模型标识: {model_key}，已跳过。")
 
 if not MODEL_CONTEXTS:
     raise RuntimeError("未启用任何可用模型，请检查 ENABLED_MODELS 配置。")
@@ -328,14 +331,14 @@ def setup_exchange():
         for symbol, config in TRADE_CONFIGS.items():
             try:
                 exchange.set_leverage(config["leverage_default"], symbol, {"mgnMode": "cross"})  # 全仓模式
-                print(f"✓ {config['display']}: 杠杆 {config['leverage_default']}x")
+                logger.info(f"✓ {config['display']}: 杠杆 {config['leverage_default']}x")
             except Exception as e:
                 err_msg = str(e)
                 if ("59669" in err_msg) or ("Cancel cross-margin" in err_msg):
                     # OKX 59669：需要先取消全仓下的止盈止损、移动止盈、触发单或停止机器人
-                    print(f"✗ {config['display']}: 跳过杠杆调整（检测到活动的TP/SL/追踪/触发单或机器人）")
+                    logger.info(f"✗ {config['display']}: 跳过杠杆调整（检测到活动的TP/SL/追踪/触发单或机器人）")
                 else:
-                    print(f"✗ {config['display']}: 杠杆设置失败 - {e}")
+                    logger.warning(f"✗ {config['display']}: 杠杆设置失败 - {e}")
 
         # 获取余额
         balance = exchange.fetch_balance()
@@ -362,22 +365,20 @@ def setup_exchange():
                     break
 
         if usdt_balance <= 0:
-            print("警告: 交易账户USDT余额为0")
-            print(" 提示：请从【资金账户】划转USDT到【交易账户】")
-            print(" OKX网页 → 资产 → 资金划转 → 从资金账户转到交易账户")
+            logger.warning("交易账户USDT余额为0")
+            logger.info("提示：请从【资金账户】划转USDT到【交易账户】")
+            logger.info("OKX网页 → 资产 → 资金划转 → 从资金账户转到交易账户")
 
         # 更新账户摘要
         with data_lock:
             web_data["account_summary"].update({"total_balance": usdt_balance, "available_balance": usdt_balance, "total_equity": total_equity})
 
-        print(f"\n当前USDT余额: {usdt_balance:.2f}")
-        print(f"总权益: {total_equity:.2f}\n")
+        logger.info(f"当前USDT余额: {usdt_balance:.2f}")
+        logger.info(f"总权益: {total_equity:.2f}")
 
         return True
     except Exception as e:
-        print("交易所设置失败")
-        print(f"   错误类型: {type(e).__name__}")
-        print(f"   错误信息: {str(e)}")
+        logger.exception("交易所设置失败")
         import traceback
 
         traceback.print_exc()
@@ -396,12 +397,7 @@ def capture_balance_snapshot(ctx: ModelContext, timestamp: Optional[str] = None)
         total_equity = float(usdt_info.get("total") or usdt_info.get("equity", 0) or 0)
         unrealized = float(usdt_info.get("unrealizedPnl", 0) or 0)
     except Exception as e:
-        print(f"[{ctx.display}] 获取余额失败")
-        print(f"   错误类型: {type(e).__name__}")
-        print(f"   错误信息: {str(e)}")
-        if hasattr(e, "response") and e.response:
-            print(f"   HTTP状态码: {getattr(e.response, 'status_code', '未知')}")
-            print(f"   响应内容: {getattr(e.response, 'text', '无')[:500]}")
+        logger.exception(f"[{ctx.display}] 获取余额失败")
         import traceback
 
         traceback.print_exc()
@@ -506,10 +502,10 @@ def execute_trade(symbol, signal_data, price_data, config):
 
         # 1. 基础时间间隔保护（适用于所有交易，包括CLOSE）
         if time_diff < 10:  # 10分钟内无条件拒绝
-            print(f"[{config['display']}] 距离上次交易仅{time_diff:.1f}分钟，避免过度频繁交易")
+            logger.info(f"[{config['display']}] 距离上次交易仅{time_diff:.1f}分钟，避免过度频繁交易")
             return
         elif time_diff < 20 and signal_data["confidence"] != "HIGH":  # 10-20分钟内只允许HIGH信心
-            print(f"[{config['display']}] 距离上次交易{time_diff:.1f}分钟，非HIGH信心不执行")
+            logger.info(f"[{config['display']}] 距离上次交易{time_diff:.1f}分钟，非HIGH信心不执行")
             return
 
         # 2. 来回反转保护（防止：多→空→多 或 空→多→空）
@@ -523,31 +519,31 @@ def execute_trade(symbol, signal_data, price_data, config):
                 last_trade_side = last_trade.get("side")
                 # 如果上次交易就是这个方向，说明是来回反转（如：多→空→多）
                 if last_trade_side == new_side and time_diff < 30:
-                    print(f"[{config['display']}] {time_diff:.1f}分钟前刚从{new_side}反转出来，避免来回反转")
+                    logger.info(f"[{config['display']}] {time_diff:.1f}分钟前刚从{new_side}反转出来，避免来回反转")
                     return
 
-    print(f"[{config['display']}] 交易信号: {signal_data.get('signal')}")
-    print(f"[{config['display']}] 信心程度: {signal_data.get('confidence')}")
-    print(f"[{config['display']}] 理由: {signal_data.get('reason')}")
-    print(f"[{config['display']}] 止损: {format_currency(signal_data.get('stop_loss'))}")
-    print(f"[{config['display']}] 止盈: {format_currency(signal_data.get('take_profit'))}")
-    print(f"[{config['display']}] 当前持仓: {current_position}")
+    logger.info(f"[{config['display']}] 交易信号: {signal_data.get('signal')}")
+    logger.info(f"[{config['display']}] 信心程度: {signal_data.get('confidence')}")
+    logger.info(f"[{config['display']}] 理由: {signal_data.get('reason')}")
+    logger.info(f"[{config['display']}] 止损: {format_currency(signal_data.get('stop_loss'))}")
+    logger.info(f"[{config['display']}] 止盈: {format_currency(signal_data.get('take_profit'))}")
+    logger.info(f"[{config['display']}] 当前持仓: {current_position}")
 
     # 处理CLOSE平仓信号
     if signal_data.get("signal", "").upper() == "CLOSE":
         if not current_position:
-            print(f"[{config['display']}] CLOSE信号但无持仓，忽略")
+            logger.info(f"[{config['display']}] CLOSE信号但无持仓，忽略")
             return
 
         # CLOSE信号也需要HIGH信心才能执行，避免频繁交易
         if signal_data["confidence"] != "HIGH":
-            print(f"[{config['display']}] CLOSE信号信心度为{signal_data['confidence']}（需要HIGH），不执行平仓")
+            logger.info(f"[{config['display']}] CLOSE信号信心度为{signal_data['confidence']}（需要HIGH），不执行平仓")
             return
 
-        print(f"[{config['display']}] 执行CLOSE平仓信号 (信心度: HIGH)")
+        logger.info(f"[{config['display']}] 执行CLOSE平仓信号 (信心度: HIGH)")
 
         if config["test_mode"]:
-            print(f"[{config['display']}] 测试模式 - 仅模拟平仓")
+            logger.info(f"[{config['display']}] 测试模式 - 仅模拟平仓")
             return
 
         # 执行平仓
@@ -555,19 +551,19 @@ def execute_trade(symbol, signal_data, price_data, config):
             ctx = get_active_context()
             size_contracts = float(current_position.get("size", 0) or 0)
             if size_contracts <= 0:
-                print(f"[{config['display']}] 持仓数量为0，无需平仓")
+                logger.info(f"[{config['display']}] 持仓数量为0，无需平仓")
                 return
 
             side = current_position.get("side")
             # 平仓订单方向与持仓方向相反
             order_side = "buy" if side == "short" else "sell"
 
-            print(f"[{config['display']}] 平仓 {side} 仓位: {size_contracts:.6f} 张，订单方向: {order_side.upper()}")
+            logger.info(f"[{config['display']}] 平仓 {side} 仓位: {size_contracts:.6f} 张，订单方向: {order_side.upper()}")
 
             # 使用市价单平仓，设置reduceOnly确保只平仓不开新仓
             order = ctx.exchange.create_market_order(symbol, order_side, size_contracts, params={"reduceOnly": True})
 
-            print(f"[{config['display']}] ✅ 平仓成功: 订单ID {order.get('id', 'N/A')}")
+            logger.info(f"[{config['display']}] ✅ 平仓成功: 订单ID {order.get('id', 'N/A')}")
             ctx.metrics["trades_closed"] += 1
 
             # 记录平仓信号到历史
@@ -607,7 +603,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                 ctx.web_data["symbols"][symbol]["current_position"] = None
 
         except Exception as e:
-            print(f"[{config['display']}] 平仓失败: {e}")
+            logger.exception(f"[{config['display']}] 平仓失败: {e}")
             import traceback
 
             traceback.print_exc()
@@ -615,22 +611,22 @@ def execute_trade(symbol, signal_data, price_data, config):
         return
 
     if signal_data.get("signal", "").upper() == "HOLD":
-        print(f"[{config['display']}] ℹ️ HOLD 信号，不执行下单流程")
+        logger.info(f"[{config['display']}] ℹ️ HOLD 信号，不执行下单流程")
         return
 
     # 风险管理：低信心信号不执行
     if signal_data["confidence"] == "LOW" and not config["test_mode"]:
-        print(f"[{config['display']}] 低信心信号，跳过执行")
+        logger.info(f"[{config['display']}] 低信心信号，跳过执行")
         return
 
     if config["test_mode"]:
-        print(f"[{config['display']}] 测试模式 - 仅模拟交易")
+        logger.info(f"[{config['display']}] 测试模式 - 仅模拟交易")
         return
 
     try:
         # 获取全局执行锁，防止多个交易对并发下单导致保证金竞争
         with order_execution_lock:
-            print(f"[{config['display']}] 已获取交易执行锁，开始处理...")
+            logger.info(f"[{config['display']}] 已获取交易执行锁，开始处理...")
 
             # 获取账户余额
             balance = exchange.fetch_balance()
@@ -655,9 +651,9 @@ def execute_trade(symbol, signal_data, price_data, config):
                         break
 
             if usdt_balance <= 0:
-                print(f"[{config['display']}] 交易账户USDT余额为0")
-                print(f"[{config['display']}]  提示：请先从【资金账户】划转USDT到【交易账户】")
-                print(f"[{config['display']}]  操作路径：OKX网页 → 资产 → 资金划转")
+                logger.warning(f"[{config['display']}] 交易账户USDT余额为0")
+                logger.info(f"[{config['display']}]  提示：请先从【资金账户】划转USDT到【交易账户】")
+                logger.info(f"[{config['display']}]  操作路径：OKX网页 → 资产 → 资金划转")
                 return
 
             # 获取AI建议的杠杆和数量（确保类型转换）
@@ -694,11 +690,11 @@ def execute_trade(symbol, signal_data, price_data, config):
                     frozen_bal = float(usdt_details.get("frozenBal", 0))
                     current_imr = float(usdt_details.get("imr", 0))
 
-                    print(f"[{config['display']}] OKX账户详情:")
-                    print(f"[{config['display']}]    - 可用余额: {avail_bal:.2f} USDT")
-                    print(f"[{config['display']}]    - 总权益: {total_eq:.2f} USDT")
-                    print(f"[{config['display']}]    - 已冻结: {frozen_bal:.2f} USDT")
-                    print(f"[{config['display']}]    - 已占用保证金: {current_imr:.2f} USDT")
+                    logger.debug(f"[{config['display']}] OKX账户详情:")
+                    logger.debug(f"[{config['display']}]    - 可用余额: {avail_bal:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 总权益: {total_eq:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 已冻结: {frozen_bal:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 已占用保证金: {current_imr:.2f} USDT")
 
                     # 方案B++：智能计算保证金（使用可配置的阈值和缓冲）
                     # 说明：考虑OKX隐藏buffer、手续费、价格波动等因素，使用更保守的参数
@@ -708,18 +704,18 @@ def execute_trade(symbol, signal_data, price_data, config):
                     # 取两者的较小值，并应用安全缓冲（应对价格波动、手续费、OKX buffer）
                     max_usable_margin = min(avail_bal, max_new_margin) * MARGIN_SAFETY_BUFFER
 
-                    print(f"[{config['display']}]  智能计算:")
-                    print(f"[{config['display']}]    - 最大允许总保证金: {max_total_imr:.2f} USDT (权益的{MAX_TOTAL_MARGIN_RATIO*100:.0f}%)")
-                    print(f"[{config['display']}]    - 可用于新仓位: {max_new_margin:.2f} USDT")
-                    print(f"[{config['display']}]    - 最终可用保证金: {max_usable_margin:.2f} USDT (含{MARGIN_SAFETY_BUFFER*100:.0f}%安全缓冲)")
+                    logger.debug(f"[{config['display']}]  智能计算:")
+                    logger.debug(f"[{config['display']}]    - 最大允许总保证金: {max_total_imr:.2f} USDT (权益的{MAX_TOTAL_MARGIN_RATIO*100:.0f}%)")
+                    logger.debug(f"[{config['display']}]    - 可用于新仓位: {max_new_margin:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 最终可用保证金: {max_usable_margin:.2f} USDT (含{MARGIN_SAFETY_BUFFER*100:.0f}%安全缓冲)")
                 else:
                     # 降级方案：简单计算
                     max_usable_margin = usdt_balance * 0.35
-                    print(f"[{config['display']}] 未找到详细信息，使用简单计算: {max_usable_margin:.2f} USDT")
+                    logger.debug(f"[{config['display']}] 未找到详细信息，使用简单计算: {max_usable_margin:.2f} USDT")
             except Exception as e:
                 # 异常时使用保守策略
                 max_usable_margin = usdt_balance * 0.35
-                print(f"[{config['display']}] 解析balance失败: {e}，使用保守值: {max_usable_margin:.2f} USDT")
+                logger.debug(f"[{config['display']}] 解析balance失败: {e}，使用保守值: {max_usable_margin:.2f} USDT")
 
             # 为当前信心等级和杠杆计算有效仓位
             confidence = signal_data.get("confidence", "MEDIUM")
@@ -741,25 +737,25 @@ def execute_trade(symbol, signal_data, price_data, config):
                 lower_bound = expected_quantity * 0.8
                 upper_bound = expected_quantity * 1.2
                 if expected_quantity > 0 and (trade_amount < lower_bound or trade_amount > upper_bound):
-                    print(f"[{config['display']}] AI返回的数量 {trade_amount:.6f} 超出预期范围 [{lower_bound:.6f}, {upper_bound:.6f}]")
-                    print(f"[{config['display']}] 🔧 自动调整为标准仓位: {expected_quantity:.6f}")
+                    logger.info(f"[{config['display']}] AI返回的数量 {trade_amount:.6f} 超出预期范围 [{lower_bound:.6f}, {upper_bound:.6f}]")
+                    logger.info(f"[{config['display']}] 🔧 自动调整为标准仓位: {expected_quantity:.6f}")
                     trade_contracts = expected_contracts
             elif order_value > 0:
                 raw_quantity = order_value / current_price if current_price else 0
                 trade_contracts = base_to_contracts(symbol, raw_quantity)
             else:
                 trade_contracts = expected_contracts
-                print(f"[{config['display']}]  AI未指定数量，使用标准仓位: {contracts_to_base(symbol, trade_contracts):.6f}")
+                logger.info(f"[{config['display']}]  AI未指定数量，使用标准仓位: {contracts_to_base(symbol, trade_contracts):.6f}")
 
             if min_contracts and trade_contracts < min_contracts:
-                print(f"[{config['display']}] 交易张数 {trade_contracts:.6f} 低于最小张数 {min_contracts:.6f}")
+                logger.info(f"[{config['display']}] 交易张数 {trade_contracts:.6f} 低于最小张数 {min_contracts:.6f}")
                 test_margin = current_price * contracts_to_base(symbol, min_contracts) / suggested_leverage if current_price else 0
                 if test_margin <= max_usable_margin:
-                    print(f"[{config['display']}] 🔧 调整为最小交易量: {contracts_to_base(symbol, min_contracts):.6f}")
+                    logger.info(f"[{config['display']}] 🔧 调整为最小交易量: {contracts_to_base(symbol, min_contracts):.6f}")
                     trade_contracts = min_contracts
                 else:
-                    print(f"[{config['display']}] 即使最小交易量也需要 {test_margin:.2f} USDT保证金，超出可用 {max_usable_margin:.2f} USDT")
-                    print(
+                    logger.warning(f"[{config['display']}] 即使最小交易量也需要 {test_margin:.2f} USDT保证金，超出可用 {max_usable_margin:.2f} USDT")
+                    logger.info(
                         f"[{config['display']}]  建议充值至少: {(contracts_to_base(symbol, min_contracts) * current_price / suggested_leverage):.2f} USDT"
                     )
                     return
@@ -768,16 +764,16 @@ def execute_trade(symbol, signal_data, price_data, config):
             trade_amount = contracts_to_base(symbol, trade_contracts)
 
             if min_contracts and trade_contracts < min_contracts:
-                print(f"[{config['display']}] 调整到交易精度后张数仍低于最小要求 {min_contracts}")
+                logger.info(f"[{config['display']}] 调整到交易精度后张数仍低于最小要求 {min_contracts}")
                 return
 
             # 计算所需保证金（第1次验证）
             required_margin = current_price * trade_amount / suggested_leverage
 
             if required_margin > max_usable_margin:
-                print(f"[{config['display']}] 初步验证：保证金不足")
-                print(f"[{config['display']}] 需要: {required_margin:.2f} USDT")
-                print(f"[{config['display']}] 可用: {max_usable_margin:.2f} USDT")
+                logger.warning(f"[{config['display']}] 初步验证：保证金不足")
+                logger.info(f"[{config['display']}] 需要: {required_margin:.2f} USDT")
+                logger.info(f"[{config['display']}] 可用: {max_usable_margin:.2f} USDT")
 
                 # 尝试动态调整数量
                 adjusted_contracts = base_to_contracts(
@@ -786,26 +782,26 @@ def execute_trade(symbol, signal_data, price_data, config):
                 adjusted_contracts = adjust_contract_quantity(symbol, max(adjusted_contracts, min_contracts), round_up=True)
                 adjusted_amount = contracts_to_base(symbol, adjusted_contracts)
                 if adjusted_contracts >= min_contracts and adjusted_amount >= min_quantity:
-                    print(
+                    logger.info(
                         f"[{config['display']}]  动态调整数量: {trade_amount:.6f} ({trade_contracts:.6f}张) → {adjusted_amount:.6f} ({adjusted_contracts:.6f}张)"
                     )
                     trade_contracts = adjusted_contracts
                     trade_amount = adjusted_amount
                     required_margin = current_price * trade_amount / suggested_leverage
                 else:
-                    print(f"[{config['display']}] 即使调整也无法满足最小交易量，跳过")
+                    logger.info(f"[{config['display']}] 即使调整也无法满足最小交易量，跳过")
                     return
 
             # 显示初步计算结果
-            print(f"[{config['display']}] 初步计算参数:")
-            print(f"[{config['display']}]    - 数量: {trade_amount:.6f} ({trade_contracts:.6f} 张, 合约面值 {contract_size:g})")
-            print(f"[{config['display']}]    - 杠杆: {suggested_leverage}x")
-            print(f"[{config['display']}]    - 所需保证金: {required_margin:.2f} USDT")
-            print(f"[{config['display']}]    - 仓位价值: ${(current_price * trade_amount):.2f}")
-            print(f"[{config['display']}]    - 保证金占用率: {(required_margin / max_usable_margin * 100):.1f}%")
+            logger.debug(f"[{config['display']}] 初步计算参数:")
+            logger.debug(f"[{config['display']}]    - 数量: {trade_amount:.6f} ({trade_contracts:.6f} 张, 合约面值 {contract_size:g})")
+            logger.debug(f"[{config['display']}]    - 杠杆: {suggested_leverage}x")
+            logger.debug(f"[{config['display']}]    - 所需保证金: {required_margin:.2f} USDT")
+            logger.debug(f"[{config['display']}]    - 仓位价值: ${(current_price * trade_amount):.2f}")
+            logger.debug(f"[{config['display']}]    - 保证金占用率: {(required_margin / max_usable_margin * 100):.1f}%")
 
             # ============ 关键改进：下单前实时验证 ============
-            print(f"\n[{config['display']}] 🔄 下单前重新验证余额...")
+            logger.debug(f"[{config['display']}] 下单前重新验证余额...")
             time.sleep(0.5)  # 短暂延迟，让其他线程订单生效
 
             # 第2次余额获取（实时）+ 智能计算
@@ -838,29 +834,29 @@ def execute_trade(symbol, signal_data, price_data, config):
                     # 取两者的较小值，并应用安全缓冲（应对价格波动、手续费、OKX buffer）
                     fresh_max_margin = min(fresh_avail_bal, fresh_max_new_margin) * MARGIN_SAFETY_BUFFER
 
-                    print(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
-                    print(f"[{config['display']}]  实时智能计算:")
-                    print(f"[{config['display']}]    - 总权益: {fresh_total_eq:.2f} USDT")
-                    print(f"[{config['display']}]    - 已占用保证金: {fresh_current_imr:.2f} USDT")
-                    print(f"[{config['display']}]    - 可用于新仓位: {fresh_max_new_margin:.2f} USDT")
-                    print(f"[{config['display']}]    - 最终可用保证金: {fresh_max_margin:.2f} USDT (含{MARGIN_SAFETY_BUFFER*100:.0f}%安全缓冲)")
+                    logger.debug(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
+                    logger.debug(f"[{config['display']}]  实时智能计算:")
+                    logger.debug(f"[{config['display']}]    - 总权益: {fresh_total_eq:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 已占用保证金: {fresh_current_imr:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 可用于新仓位: {fresh_max_new_margin:.2f} USDT")
+                    logger.debug(f"[{config['display']}]    - 最终可用保证金: {fresh_max_margin:.2f} USDT (含{MARGIN_SAFETY_BUFFER*100:.0f}%安全缓冲)")
                 else:
                     # 降级方案：简单计算
                     fresh_max_margin = fresh_usdt * 0.35
-                    print(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
-                    print(f"[{config['display']}] 未找到详细信息，使用简单计算: {fresh_max_margin:.2f} USDT")
+                    logger.debug(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
+                    logger.debug(f"[{config['display']}] 未找到详细信息，使用简单计算: {fresh_max_margin:.2f} USDT")
             except Exception as e:
                 # 异常时使用保守策略
                 fresh_max_margin = fresh_usdt * 0.35
-                print(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
-                print(f"[{config['display']}] 实时解析失败: {e}，使用保守值: {fresh_max_margin:.2f} USDT")
+                logger.debug(f"[{config['display']}] 实时余额: {fresh_usdt:.2f} USDT")
+                logger.debug(f"[{config['display']}] 实时解析失败: {e}，使用保守值: {fresh_max_margin:.2f} USDT")
 
             # 第2次验证
             if required_margin > fresh_max_margin:
-                print(f"[{config['display']}] 实时验证失败：保证金不足")
-                print(f"[{config['display']}] 需要: {required_margin:.2f} USDT")
-                print(f"[{config['display']}] 实时: {fresh_max_margin:.2f} USDT")
-                print(f"[{config['display']}]  可能其他交易对已占用保证金")
+                logger.warning(f"[{config['display']}] 实时验证失败：保证金不足")
+                logger.info(f"[{config['display']}] 需要: {required_margin:.2f} USDT")
+                logger.info(f"[{config['display']}] 实时: {fresh_max_margin:.2f} USDT")
+                logger.info(f"[{config['display']}]  可能其他交易对已占用保证金")
 
                 # 再次尝试动态调整
                 final_adjusted_contracts = base_to_contracts(
@@ -869,47 +865,47 @@ def execute_trade(symbol, signal_data, price_data, config):
                 final_adjusted_contracts = adjust_contract_quantity(symbol, max(final_adjusted_contracts, min_contracts), round_up=True)
                 final_adjusted_amount = contracts_to_base(symbol, final_adjusted_contracts)
                 if final_adjusted_contracts >= min_contracts and final_adjusted_amount >= min_quantity:
-                    print(
+                    logger.info(
                         f"[{config['display']}]  最终调整数量: {trade_amount:.6f} ({trade_contracts:.6f}张) → {final_adjusted_amount:.6f} ({final_adjusted_contracts:.6f}张)"
                     )
                     trade_contracts = final_adjusted_contracts
                     trade_amount = final_adjusted_amount
                     required_margin = current_price * trade_amount / suggested_leverage
                 else:
-                    print(f"[{config['display']}] 无法调整，彻底放弃")
+                    logger.info(f"[{config['display']}] 无法调整，彻底放弃")
                     return
 
-            print(f"[{config['display']}] ✅ 实时验证通过")
-            print(f"[{config['display']}] 最终交易参数:")
-            print(f"[{config['display']}]    - 数量: {trade_amount:.6f} ({trade_contracts:.6f} 张)")
-            print(f"[{config['display']}]    - 杠杆: {suggested_leverage}x")
-            print(f"[{config['display']}]    - 所需保证金: {required_margin:.2f} USDT")
+            logger.info(f"[{config['display']}] ✅ 实时验证通过")
+            logger.info(f"[{config['display']}] 最终交易参数:")
+            logger.info(f"[{config['display']}]    - 数量: {trade_amount:.6f} ({trade_contracts:.6f} 张)")
+            logger.info(f"[{config['display']}]    - 杠杆: {suggested_leverage}x")
+            logger.info(f"[{config['display']}]    - 所需保证金: {required_margin:.2f} USDT")
 
             # 在验证通过后才设置杠杆（避免验证失败导致的杠杆副作用）
             current_leverage = current_position["leverage"] if current_position else config["leverage_default"]
             if suggested_leverage != current_leverage:
                 try:
                     exchange.set_leverage(suggested_leverage, symbol, {"mgnMode": "cross"})
-                    print(f"[{config['display']}] ✓ 杠杆已设置为 {suggested_leverage}x")
+                    logger.info(f"[{config['display']}] ✓ 杠杆已设置为 {suggested_leverage}x")
                 except Exception as e:
                     err_msg = str(e)
                     if ("59669" in err_msg) or ("Cancel cross-margin" in err_msg):
-                        print(
+                        logger.info(
                             f"[{config['display']}] 杠杆调整被拒（59669）：存在活动的TP/SL/追踪/触发单，沿用当前杠杆 {current_leverage}x"
                         )
                     else:
-                        print(f"[{config['display']}] 杠杆设置失败: {e}")
+                        logger.warning(f"[{config['display']}] 杠杆设置失败: {e}")
                     # 如果杠杆设置失败，使用当前杠杆重新计算
                     suggested_leverage = current_leverage
                     required_margin = current_price * trade_amount / suggested_leverage
-                    print(f"[{config['display']}] 使用当前杠杆 {suggested_leverage}x")
+                    logger.info(f"[{config['display']}] 使用当前杠杆 {suggested_leverage}x")
 
             # ============ 执行交易（带重试机制） ============
             max_retries = 2
             trade_type = None  # 交易类型：open_long, open_short, add_long, add_short, reverse_long_to_short, reverse_short_to_long
             for attempt in range(max_retries):
                 try:
-                    print(f"\n[{config['display']}] 📤 执行交易（尝试 {attempt + 1}/{max_retries}）...")
+                    logger.info(f"[{config['display']}] 📤 执行交易（尝试 {attempt + 1}/{max_retries}）...")
 
                     # 执行交易逻辑 - tag是经纪商api
                     if signal_data["signal"] == "BUY":
@@ -919,7 +915,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                             close_contracts = float(current_position.get("size", 0) or 0)
                             base_token = symbol.split("/")[0]
                             close_amount = contracts_to_base(symbol, close_contracts)
-                            print(f"[{config['display']}] 平空仓并开多仓... 平空 {close_contracts:.6f} 张 (~{close_amount:.6f} {base_token})")
+                            logger.info(f"[{config['display']}] 平空仓并开多仓... 平空 {close_contracts:.6f} 张 (~{close_amount:.6f} {base_token})")
                             # 平空仓
                             exchange.create_market_order(symbol, "buy", close_contracts, params={"reduceOnly": True, "tag": "60bb4a8d3416BCDE"})
                             time.sleep(1)
@@ -941,23 +937,23 @@ def execute_trade(symbol, signal_data, price_data, config):
 
                                 if new_total_value <= max_position_value:
                                     trade_type = "add_long"
-                                    print(f"[{config['display']}] 📈 HIGH信心加仓机会：当前 {current_size:.6f}张 → 追加 {trade_contracts:.6f}张")
-                                    print(f"[{config['display']}]    当前仓位价值: {current_value:.2f} USDT")
-                                    print(f"[{config['display']}]    追加仓位价值: {add_value:.2f} USDT")
-                                    print(f"[{config['display']}]    总仓位价值: {new_total_value:.2f} USDT")
+                                    logger.info(f"[{config['display']}] 📈 HIGH信心加仓机会：当前 {current_size:.6f}张 → 追加 {trade_contracts:.6f}张")
+                                    logger.debug(f"[{config['display']}]    当前仓位价值: {current_value:.2f} USDT")
+                                    logger.debug(f"[{config['display']}]    追加仓位价值: {add_value:.2f} USDT")
+                                    logger.debug(f"[{config['display']}]    总仓位价值: {new_total_value:.2f} USDT")
                                     # 直接加仓（同方向开仓会自动追加）
                                     exchange.create_market_order(symbol, "buy", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
                                 else:
-                                    print(f"[{config['display']}] 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
+                                    logger.info(f"[{config['display']}] 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
                             else:
                                 if not config.get("enable_add_position", False):
-                                    print(f"[{config['display']}] 已有多头持仓，保持现状（加仓功能已禁用）")
+                                    logger.info(f"[{config['display']}] 已有多头持仓，保持现状（加仓功能已禁用）")
                                 else:
-                                    print(f"[{config['display']}] 已有多头持仓，保持现状（非HIGH信心不加仓）")
+                                    logger.info(f"[{config['display']}] 已有多头持仓，保持现状（非HIGH信心不加仓）")
                         else:
                             # 无持仓时开多仓
                             trade_type = "open_long"
-                            print(f"[{config['display']}] 开多仓...")
+                            logger.info(f"[{config['display']}] 开多仓...")
                             exchange.create_market_order(symbol, "buy", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
 
                     elif signal_data["signal"] == "SELL":
@@ -967,7 +963,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                             close_contracts = float(current_position.get("size", 0) or 0)
                             base_token = symbol.split("/")[0]
                             close_amount = contracts_to_base(symbol, close_contracts)
-                            print(f"[{config['display']}] 平多仓并开空仓... 平多 {close_contracts:.6f} 张 (~{close_amount:.6f} {base_token})")
+                            logger.info(f"[{config['display']}] 平多仓并开空仓... 平多 {close_contracts:.6f} 张 (~{close_amount:.6f} {base_token})")
                             # 平多仓
                             exchange.create_market_order(symbol, "sell", close_contracts, params={"reduceOnly": True, "tag": "60bb4a8d3416BCDE"})
                             time.sleep(1)
@@ -989,51 +985,51 @@ def execute_trade(symbol, signal_data, price_data, config):
 
                                 if new_total_value <= max_position_value:
                                     trade_type = "add_short"
-                                    print(f"[{config['display']}] 📈 HIGH信心加仓机会：当前 {current_size:.6f}张 → 追加 {trade_contracts:.6f}张")
-                                    print(f"[{config['display']}]    当前仓位价值: {current_value:.2f} USDT")
-                                    print(f"[{config['display']}]    追加仓位价值: {add_value:.2f} USDT")
-                                    print(f"[{config['display']}]    总仓位价值: {new_total_value:.2f} USDT")
+                                    logger.info(f"[{config['display']}] 📈 HIGH信心加仓机会：当前 {current_size:.6f}张 → 追加 {trade_contracts:.6f}张")
+                                    logger.debug(f"[{config['display']}]    当前仓位价值: {current_value:.2f} USDT")
+                                    logger.debug(f"[{config['display']}]    追加仓位价值: {add_value:.2f} USDT")
+                                    logger.debug(f"[{config['display']}]    总仓位价值: {new_total_value:.2f} USDT")
                                     # 直接加仓（同方向开仓会自动追加）
                                     exchange.create_market_order(symbol, "sell", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
                                 else:
-                                    print(f"[{config['display']}] 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
+                                    logger.info(f"[{config['display']}] 加仓后超出仓位上限（{new_total_value:.2f} > {max_position_value:.2f}），保持现状")
                             else:
                                 if not config.get("enable_add_position", False):
-                                    print(f"[{config['display']}] 已有空头持仓，保持现状（加仓功能已禁用）")
+                                    logger.info(f"[{config['display']}] 已有空头持仓，保持现状（加仓功能已禁用）")
                                 else:
-                                    print(f"[{config['display']}] 已有空头持仓，保持现状（非HIGH信心不加仓）")
+                                    logger.info(f"[{config['display']}] 已有空头持仓，保持现状（非HIGH信心不加仓）")
                         else:
                             # 无持仓时开空仓
                             trade_type = "open_short"
-                            print(f"[{config['display']}] 开空仓...")
+                            logger.info(f"[{config['display']}] 开空仓...")
                             exchange.create_market_order(symbol, "sell", trade_contracts, params={"tag": "60bb4a8d3416BCDE"})
 
-                    print(f"[{config['display']}] ✓ 订单执行成功")
+                    logger.info(f"[{config['display']}] ✓ 订单执行成功")
                     break  # 成功则跳出重试循环
 
                 except ccxt.InsufficientFunds as e:
                     # 捕获51008保证金不足错误
-                    print(f"[{config['display']}] 保证金不足错误: {e}")
+                    logger.warning(f"[{config['display']}] 保证金不足错误: {e}")
 
                     if attempt < max_retries - 1:
                         # 还有重试机会，尝试减少50%数量
-                        print(f"[{config['display']}]  尝试减少50%数量重试...")
+                        logger.info(f"[{config['display']}]  尝试减少50%数量重试...")
                         trade_contracts = adjust_contract_quantity(symbol, trade_contracts * 0.5, round_up=True)
                         trade_amount = contracts_to_base(symbol, trade_contracts)
                         if min_contracts and trade_contracts < min_contracts:
-                            print(f"[{config['display']}] 减少后仍低于最小张数{min_contracts}，放弃")
+                            logger.info(f"[{config['display']}] 减少后仍低于最小张数{min_contracts}，放弃")
                             return
                         required_margin = current_price * trade_amount / suggested_leverage
-                        print(f"[{config['display']}] 新数量: {trade_amount:.6f} ({trade_contracts:.6f}张), 新保证金: {required_margin:.2f} USDT")
+                        logger.info(f"[{config['display']}] 新数量: {trade_amount:.6f} ({trade_contracts:.6f}张), 新保证金: {required_margin:.2f} USDT")
                         time.sleep(1)  # 等待1秒后重试
                     else:
-                        print(f"[{config['display']}] 重试次数已用完，彻底放弃")
+                        logger.info(f"[{config['display']}] 重试次数已用完，彻底放弃")
                         return
 
                 except Exception as e:
-                    print(f"[{config['display']}] 订单执行失败: {e}")
+                    logger.warning(f"[{config['display']}] 订单执行失败: {e}")
                     if attempt < max_retries - 1:
-                        print(f"[{config['display']}] 等待2秒后重试...")
+                        logger.info(f"[{config['display']}] 等待2秒后重试...")
                         time.sleep(2)
                     else:
                         import traceback
@@ -1046,7 +1042,7 @@ def execute_trade(symbol, signal_data, price_data, config):
 
             # 更新持仓信息
             updated_position = get_current_position(symbol)
-            print(f"[{config['display']}] 更新后持仓: {updated_position}")
+            logger.info(f"[{config['display']}] 更新后持仓: {updated_position}")
             ctx = get_active_context()
             if current_position and not updated_position:
                 ctx.metrics["trades_closed"] += 1
@@ -1078,7 +1074,7 @@ def execute_trade(symbol, signal_data, price_data, config):
                         safe_float(ts_callback_spread, None) if ts_callback_spread is not None else None,
                     )
             except Exception as e:
-                print(f"[{config['display']}] 设置移动止盈止损时发生异常: {e}")
+                logger.warning(f"[{config['display']}] 设置移动止盈止损时发生异常: {e}")
 
             # 记录交易历史（仅在实际执行交易时记录，使用线程锁保护）
             if trade_type is not None:  # 只有实际执行了交易才记录
@@ -1128,11 +1124,11 @@ def execute_trade(symbol, signal_data, price_data, config):
                     web_data["symbols"][symbol]["performance"]["last_order_quantity"] = trade_amount
                     web_data["symbols"][symbol]["performance"]["last_order_contracts"] = trade_contracts
 
-            print(f"[{config['display']}] 🔓 释放交易执行锁")
+            logger.debug(f"[{config['display']}] 🔓 释放交易执行锁")
             # with块结束，自动释放order_execution_lock
 
     except Exception as e:
-        print(f"[{config['display']}] 订单执行失败: {e}")
+        logger.exception(f"[{config['display']}] 订单执行失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -1241,21 +1237,21 @@ def run_symbol_cycle(symbol, config):
     try:
         ensure_symbol_state(symbol)
 
-        print(f"\n[{config['display']}] {'='*50}")
-        print(f"[{config['display']}] 执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"[{config['display']}] {'='*50}")
+        logger.info(f"[{config['display']}] 执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         # 1. 获取K线数据
         price_data = get_symbol_ohlcv_enhanced(symbol, config)
         if not price_data:
-            print(f"[{config['display']}] 获取数据失败，跳过")
+            logger.warning(f"[{config['display']}] 获取数据失败，跳过")
             return
 
-        print(f"[{config['display']}] 当前价格: ${price_data['price']:,.2f} ({price_data['price_change']:+.2f}%)")
+        logger.info(f"[{config['display']}] 当前价格: ${price_data['price']:,.2f} ({price_data['price_change']:+.2f}%)")
 
         # 1.5. 检查止盈止损（优先级最高）
         stop_check = check_stop_loss_take_profit(symbol, price_data["price"], config)
         if stop_check["should_close"]:
-            print(f"[{config['display']}] 🚨 {stop_check['reason']}")
+            logger.warning(f"[{config['display']}] 🚨 {stop_check['reason']}")
 
             # 创建强制平仓信号
             forced_close_signal = {
@@ -1272,12 +1268,12 @@ def run_symbol_cycle(symbol, config):
 
             # 直接执行平仓，跳过AI分析
             execute_trade(symbol, forced_close_signal, price_data, config)
-            print(f"[{config['display']}] ✓ 止盈止损处理完成")
+            logger.info(f"[{config['display']}] ✓ 止盈止损处理完成")
             return
         else:
             # 输出当前持仓状态
             if stop_check.get("stop_loss") and stop_check.get("take_profit"):
-                print(f"[{config['display']}]  {stop_check['reason']}")
+                logger.info(f"[{config['display']}]  {stop_check['reason']}")
 
         # 2. AI分析
         signal_data = analyze_with_llm(symbol, price_data, config)
@@ -1324,10 +1320,10 @@ def run_symbol_cycle(symbol, config):
         # 4. 执行交易
         execute_trade(symbol, signal_data, price_data, config)
 
-        print(f"[{config['display']}] ✓ 周期完成")
+        logger.info(f"[{config['display']}] ✓ 周期完成")
 
     except Exception as e:
-        print(f"[{config.get('display', symbol)}] 执行失败: {e}")
+        logger.exception(f"[{config.get('display', symbol)}] 执行失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -1335,9 +1331,9 @@ def run_symbol_cycle(symbol, config):
 
 def run_all_symbols_parallel(model_display: str):
     """并行执行所有交易对（针对单个模型上下文）"""
-    print("\n" + "=" * 70)
-    print(f"🚀 [{model_display}] 开始新一轮分析 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info(f"🚀 [{model_display}] 开始新一轮分析 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("=" * 70)
 
     # 使用线程池并行执行
     with ThreadPoolExecutor(max_workers=len(TRADE_CONFIGS)) as executor:
@@ -1345,7 +1341,7 @@ def run_all_symbols_parallel(model_display: str):
         for symbol, config in TRADE_CONFIGS.items():
             # 在提交任务阶段检查停止信号
             if STOP_EVENT.is_set():
-                print(f"🛑 [{model_display}] 停止信号触发，终止任务提交。")
+                logger.info(f"🛑 [{model_display}] 停止信号触发，终止任务提交。")
                 break
             future = executor.submit(run_symbol_cycle, symbol, config)
             futures.append((symbol, future))
@@ -1356,58 +1352,58 @@ def run_all_symbols_parallel(model_display: str):
         # 等待所有任务完成（或停止）
         for symbol, future in futures:
             if STOP_EVENT.is_set():
-                print(f"🛑 [{model_display}] 停止信号触发，跳过剩余任务等待。")
+                logger.info(f"🛑 [{model_display}] 停止信号触发，跳过剩余任务等待。")
                 break
             try:
                 future.result(timeout=60)  # 60秒超时
             except Exception as e:
-                print(f"[{model_display} | {TRADE_CONFIGS[symbol]['display']}] 任务异常: {e}")
+                logger.warning(f"[{model_display} | {TRADE_CONFIGS[symbol]['display']}] 任务异常: {e}")
 
-    print("\n" + "=" * 70)
-    print(f"✓ [{model_display}] 本轮分析完成")
-    print("=" * 70 + "\n")
+    logger.info("=" * 70)
+    logger.info(f"✓ [{model_display}] 本轮分析完成")
+    logger.info("=" * 70)
 
 
 def main():
     """主入口：同时调度多模型、多交易对"""
-    print("\n" + "=" * 70)
-    print("🧠 多交易对自动交易机器人启动")
-    print("=" * 70)
-    print(f"启用模型: {', '.join([MODEL_CONTEXTS[key].display for key in MODEL_ORDER])}")
-    print(f"交易对数量: {len(TRADE_CONFIGS)}")
-    print(f"交易对列表: {', '.join([c['display'] for c in TRADE_CONFIGS.values()])}")
-    print("=" * 70 + "\n")
+    logger.info("=" * 70)
+    logger.info("🧠 多交易对自动交易机器人启动")
+    logger.info("=" * 70)
+    logger.info(f"启用模型: {', '.join([MODEL_CONTEXTS[key].display for key in MODEL_ORDER])}")
+    logger.info(f"交易对数量: {len(TRADE_CONFIGS)}")
+    logger.info(f"交易对列表: {', '.join([c['display'] for c in TRADE_CONFIGS.values()])}")
+    logger.info("=" * 70)
 
     test_mode_count = sum(1 for c in TRADE_CONFIGS.values() if c.get("test_mode", True))
     if test_mode_count > 0:
-        print(f" {test_mode_count}/{len(TRADE_CONFIGS)} 个交易对处于测试模式")
+        logger.info(f" {test_mode_count}/{len(TRADE_CONFIGS)} 个交易对处于测试模式")
     else:
-        print("实盘交易模式 - 请谨慎操作！")
+        logger.warning("实盘交易模式 - 请谨慎操作！")
 
-    print("\n初始化各模型的 OKX 账户...")
+    logger.info("初始化各模型的 OKX 账户...")
     for model_key in MODEL_ORDER:
         ctx = MODEL_CONTEXTS[model_key]
         sub_account = getattr(ctx, "sub_account", None) or "主账户"
-        print(f"\n[{ctx.display}] 绑定子账户: {sub_account}")
+        logger.info(f"[{ctx.display}] 绑定子账户: {sub_account}")
         with activate_context(ctx):
             if not setup_exchange():
-                print(f"{ctx.display} 交易所初始化失败，程序退出")
+                logger.error(f"{ctx.display} 交易所初始化失败，程序退出")
                 return
             capture_balance_snapshot(ctx)
             refresh_overview_from_context(ctx)
-        print(f"✓ {ctx.display} 交易所配置完成")
+        logger.info(f"✓ {ctx.display} 交易所配置完成")
 
-    print("\n系统参数：")
-    print("- 执行模式: 每模型并行交易对")
-    print("- 执行频率: 每5分钟整点 (00,05,10,15,20,25,30,35,40,45,50,55)")
-    print("- API防限频延迟: 2秒/交易对\n")
+    logger.info("系统参数：")
+    logger.info("- 执行模式: 每模型并行交易对")
+    logger.info("- 执行频率: 每5分钟整点 (00,05,10,15,20,25,30,35,40,45,50,55)")
+    logger.info("- API防限频延迟: 2秒/交易对")
 
     record_overview_point(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     while True:
         # 在循环开头检查停止信号
         if STOP_EVENT.is_set():
-            print("🛑 收到停止信号，退出交易循环。")
+            logger.info("🛑 收到停止信号，退出交易循环。")
             break
 
         wait_seconds = wait_for_next_period()
@@ -1415,13 +1411,13 @@ def main():
             # 可中断等待到整点
             sleep_interruptible(wait_seconds, STOP_EVENT)
             if STOP_EVENT.is_set():
-                print("🛑 停止信号触发于等待阶段，退出交易循环。")
+                logger.info("🛑 停止信号触发于等待阶段，退出交易循环。")
                 break
 
         cycle_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for model_key in MODEL_ORDER:
             if STOP_EVENT.is_set():
-                print("🛑 停止信号触发于模型处理阶段，退出交易循环。")
+                logger.info("🛑 停止信号触发于模型处理阶段，退出交易循环。")
                 break
             ctx = MODEL_CONTEXTS[model_key]
             with activate_context(ctx):

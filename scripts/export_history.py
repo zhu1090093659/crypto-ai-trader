@@ -8,10 +8,13 @@
 """
 
 import argparse
+import logging
 from datetime import datetime
 from pathlib import Path
 
 import deepseekok2
+
+logger = logging.getLogger(__name__)
 
 
 def parse_range(range_str: str):
@@ -46,7 +49,7 @@ def main():
         output_path = deepseekok2.ARCHIVE_DIR / filename
 
     deepseekok2.history_store.export_range_to_excel(start_ts, end_ts, output_path, models=models)
-    print(f"✅ 历史数据导出完成: {output_path}")
+    logger.info(f"✅ 历史数据导出完成: {output_path}")
 
 
 if __name__ == "__main__":

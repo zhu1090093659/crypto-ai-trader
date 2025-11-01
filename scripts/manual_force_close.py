@@ -2,6 +2,7 @@
 # 临时强制平仓脚本：用于在主程序运行期间手动关闭指定交易对的持仓
 
 import argparse
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from deepseekok2 import (
     contracts_to_base,
     get_current_position,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,14 +55,14 @@ def parse_args() -> argparse.Namespace:
 
 def log(message: str, quiet: bool = False) -> None:
     if not quiet:
-        print(message)
+        logger.info(message)
 
 
 def main() -> int:
     args = parse_args()
 
     if args.model not in MODEL_CONTEXTS:
-        print(f"未找到模型 '{args.model}'，可用模型：{', '.join(MODEL_CONTEXTS.keys())}")
+        logger.error(f"未找到模型 '{args.model}'，可用模型：{', '.join(MODEL_CONTEXTS.keys())}")
         return 1
 
     ctx = MODEL_CONTEXTS[args.model]
@@ -69,12 +72,12 @@ def main() -> int:
     with activate_context(ctx):
         position = get_current_position(args.symbol)
         if not position:
-            print(f"ℹ️ {args.symbol} 当前无持仓，无需平仓。")
+            logger.info(f"ℹ️ {args.symbol} 当前无持仓，无需平仓。")
             return 0
 
         size_contracts = float(position.get("size") or 0)
         if size_contracts <= 0:
-            print(f"ℹ️ {args.symbol} 持仓合约数为 0，跳过。")
+            logger.info(f"ℹ️ {args.symbol} 持仓合约数为 0，跳过。")
             return 0
 
         base_qty = contracts_to_base(args.symbol, size_contracts)
@@ -88,7 +91,7 @@ def main() -> int:
         )
 
         if args.dry_run:
-            print("✅ dry-run 模式，仅展示计划，不提交订单。")
+            logger.info("✅ dry-run 模式，仅展示计划，不提交订单。")
             return 0
 
         params = {"reduceOnly": True}
@@ -102,10 +105,10 @@ def main() -> int:
                 size_contracts,
                 params=params,
             )
-            print("✅ 已提交 reduceOnly 平仓订单。")
+            logger.info("✅ 已提交 reduceOnly 平仓订单。")
             return 0
         except Exception as exc:  # 捕获所有异常，便于快速反馈
-            print(f"平仓失败：{exc}")
+            logger.error(f"平仓失败：{exc}")
             return 2
 
 
