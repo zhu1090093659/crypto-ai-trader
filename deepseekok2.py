@@ -120,6 +120,46 @@ order_execution_lock = threading.Lock()
 STOP_EVENT = threading.Event()
 
 
+# ==================== OKX 移动止盈止损 下单辅助 ====================
+def place_trailing_stop_order(symbol: str, pos_side: str, contracts_sz: float, ts_active_px: float, ts_callback_rate: Optional[float] = None, ts_callback_spread: Optional[float] = None):
+    """使用 OKX 策略委托下单接口创建移动止盈/止损（追踪止盈/止损）。
+
+    要求：ordType=move_order_stop
+    关键参数：activePx + (callbackRate 或 callbackSpread)
+    """
+    try:
+        market = exchange.market(symbol)
+        inst_id = market.get("id")
+        if not inst_id:
+            raise ValueError(f"未找到 {symbol} 的 OKX instId")
+
+        side = "sell" if pos_side == "long" else "buy"
+        sz_val = float(contracts_sz or 0)
+        if sz_val <= 0:
+            raise ValueError("移动止盈止损下单失败：数量为0")
+
+        payload = {
+            "instId": inst_id,
+            "tdMode": "cross",
+            "side": side,
+            "posSide": pos_side,  # long/short
+            "ordType": "move_order_stop",
+            "sz": str(sz_val),
+            "activePx": str(ts_active_px),
+        }
+        if ts_callback_rate is not None:
+            payload["callbackRate"] = str(ts_callback_rate)
+        if ts_callback_spread is not None and "callbackRate" not in payload:
+            payload["callbackSpread"] = str(ts_callback_spread)
+
+        # 原生 OKX v5 接口
+        resp = exchange.privatePostTradeOrderAlgo(payload)
+        print(f"[OKX] ✓ 已创建移动止盈止损: posSide={pos_side} side={side} sz={sz_val} activePx={ts_active_px} rate={ts_callback_rate} spread={ts_callback_spread}")
+        return resp
+    except Exception as e:
+        print(f"[OKX] ❌ 创建移动止盈止损失败: {e}")
+        return None
+
 def request_stop_trading_bot() -> None:
     """
     请求停止交易机器人（置位停止信号）。
@@ -995,6 +1035,33 @@ def execute_trade(symbol, signal_data, price_data, config):
             elif not current_position and updated_position:
                 ctx.metrics["trades_opened"] += 1
 
+            # 创建移动止盈/止损（若AI给出参数，且当前为持仓状态）
+            try:
+                ts_active_px = safe_float(signal_data.get("ts_active_px"), 0)
+                ts_callback_rate = signal_data.get("ts_callback_rate")
+                ts_callback_spread = signal_data.get("ts_callback_spread")
+                # 仅在开仓/加仓/反转后尝试设置，且需要有持仓
+                if trade_type in [
+                    "open_long",
+                    "add_long",
+                    "reverse_short_to_long",
+                    "open_short",
+                    "add_short",
+                    "reverse_long_to_short",
+                ] and updated_position and ts_active_px:
+                    pos_side = updated_position.get("side")
+                    sz = safe_float(updated_position.get("size"), 0)
+                    place_trailing_stop_order(
+                        symbol,
+                        pos_side,
+                        sz,
+                        ts_active_px,
+                        safe_float(ts_callback_rate, None) if ts_callback_rate is not None else None,
+                        safe_float(ts_callback_spread, None) if ts_callback_spread is not None else None,
+                    )
+            except Exception as e:
+                print(f"[{config['display']}] ⚠️ 设置移动止盈止损时发生异常: {e}")
+
             # 记录交易历史（仅在实际执行交易时记录，使用线程锁保护）
             if trade_type is not None:  # 只有实际执行了交易才记录
                 # 交易类型的中文描述
@@ -1023,6 +1090,9 @@ def execute_trade(symbol, signal_data, price_data, config):
                     "leverage": suggested_leverage,
                     "confidence": signal_data["confidence"],
                     "reason": signal_data.get("reason", ""),
+                    "ts_active_px": safe_float(signal_data.get("ts_active_px"), 0),
+                    "ts_callback_rate": safe_float(signal_data.get("ts_callback_rate"), 0),
+                    "ts_callback_spread": safe_float(signal_data.get("ts_callback_spread"), 0),
                 }
 
                 with data_lock:
@@ -1222,6 +1292,9 @@ def run_symbol_cycle(symbol, config):
                 "order_value": safe_float(signal_data.get("order_value"), 0),
                 "order_quantity": safe_float(signal_data.get("order_quantity"), 0),
                 "price": price_data["price"],
+                "ts_active_px": safe_float(signal_data.get("ts_active_px"), 0),
+                "ts_callback_rate": safe_float(signal_data.get("ts_callback_rate"), 0),
+                "ts_callback_spread": safe_float(signal_data.get("ts_callback_spread"), 0),
             }
             web_data["symbols"][symbol]["ai_decisions"].append(ai_decision)
             if len(web_data["symbols"][symbol]["ai_decisions"]) > 50:

@@ -448,6 +448,10 @@ def build_professional_prompt(
         "     • 风险收益比：止盈距离应≥止损距离×1.5（推荐1:2或更高）\n"
         "     • CLOSE信号：填0即可；HOLD信号：填当前观望区间\n"
         "     • ⚠️ 避免过窄（<1%）或风险收益比倒挂\n",
+        "  ⭐ 额外：请同时给出 移动止盈/止损 参数（用于交易所追踪止盈/止损）：\n"
+        "     - ts_active_px: 激活价格（达到该价后开始跟踪）\n"
+        "     - ts_callback_rate: 回调比例(%)，如 0.8 表示0.8%（或提供 ts_callback_spread 绝对价差，二选一）\n"
+        "     - 建议：结合ATR/入场价/止盈价，给出合理的激活价与回调幅度\n"
         "  请用JSON格式返回:\n"
         "  {\n"
         '    "signal": "BUY|SELL|CLOSE|HOLD",\n'
@@ -456,7 +460,10 @@ def build_professional_prompt(
         '    "take_profit": 具体价格（根据ATR、支撑/阻力位、风险收益比综合确定，详见规则9️⃣）,\n'
         '    "confidence": "HIGH|MEDIUM|LOW",\n'
         f"    \"leverage\": {config['leverage_min']}-{config['leverage_max']}范围整数（CLOSE信号时可省略）,\n"
-        '    "order_quantity": 从建议表中对应【信心等级+杠杆倍数】行的数量（完全复制，6位小数）（CLOSE信号时可省略）\n'
+        '    "order_quantity": 从建议表中对应【信心等级+杠杆倍数】行的数量（完全复制，6位小数）（CLOSE信号时可省略）,\n'
+        '    "ts_active_px": 可选-移动止盈止损激活价格（HOLD/CLOSE可省略）,\n'
+        '    "ts_callback_rate": 可选-回调比例(%)，如0.8代表0.8%（与ts_callback_spread二选一）,\n'
+        '    "ts_callback_spread": 可选-回调绝对价差（与ts_callback_rate二选一）\n'
         "  }\n"
         "  ---",
     ]
