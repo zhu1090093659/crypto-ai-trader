@@ -303,10 +303,21 @@ if __name__ == "__main__":
     logger.info("🚀 启动多交易对交易机器人Web监控...")
     logger.info("=" * 60)
 
-    # initialize_data()
+    logger.info("⏳ 正在执行启动前初始化（initialize_data）...")
+    try:
+        initialize_data()
+        logger.info("✅ 启动前初始化完成")
+    except Exception as e:
+        logger.exception(f"启动前初始化失败: {e}")
 
-    # 默认不自动启动交易机器人，可在前端通过“电源”按钮启动
-    logger.info("⏹ 交易机器人默认未启动。可在前端点击右上角电源按钮启动。")
+    with thread_lock:
+        if bot_thread is None or not bot_thread.is_alive():
+            deepseekok2.clear_stop_signal()
+            bot_thread = threading.Thread(target=run_trading_bot, daemon=True)
+            bot_thread.start()
+            logger.info("🤖 交易机器人已默认启动（后台运行）")
+        else:
+            logger.info("🤖 交易机器人已在运行")
 
     # 禁用Flask/Werkzeug的HTTP请求日志输出
     log = logging.getLogger("werkzeug")

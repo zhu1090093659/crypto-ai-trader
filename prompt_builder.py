@@ -422,10 +422,7 @@ def build_professional_prompt(
         "  - signal=CLOSE 时无需填写 leverage 与 order_quantity\n"
         "  【止盈止损】\n"
         "  - 依据ATR/支撑阻力/信心：止损2-8%，止盈4-15%，RR≥1:1.5\n"
-        "  - CLOSE填0；HOLD写观察区间；避免过窄(<1%)\n"
-        "  【移动止盈/止损】\n"
-        "  - ts_active_px: 激活价；ts_callback_rate(%) 或 ts_callback_spread(价差)\n"
-        "  - 建议结合ATR/入场价/止盈价给出\n",
+        "  - CLOSE填0；HOLD写观察区间；避免过窄(<1%)\n",
         "  【回撤控制】\n",
         "  - 最大回撤：若账户净值较峰值回撤>15%，暂停交易（仅HOLD）\n",
         "  - 当日亏损：若当日亏损>5%，当天进入仅HOLD模式\n",
@@ -449,10 +446,7 @@ def build_professional_prompt(
         '    "take_profit": 价格,\n'
         '    "confidence": "HIGH|MEDIUM|LOW",\n'
         f"    \"leverage\": {config['leverage_min']}-{config['leverage_max']}（CLOSE可省略）,\n"
-        '    "order_quantity": 建议表中对应数量（6位小数，CLOSE可省略）,\n'
-        '    "ts_active_px": 可省略(HOLD/CLOSE),\n'
-        '    "ts_callback_rate": %，与ts_callback_spread二选一,\n'
-        '    "ts_callback_spread": 价差（可选）\n'
+        '    "order_quantity": 建议表中对应数量（6位小数，CLOSE可省略）\n'
         "  }\n"
         "  ---",
     ]
@@ -482,8 +476,8 @@ def build_system_prompt(config: Dict) -> str:
 - LOW：指标分歧或震荡
 
 【信号含义】
-- BUY：上涨信号占优
-- SELL：下跌信号占优（做空开仓，不是平仓）
+- BUY：上涨信号占优（放量上涨突破阻力位或均线）
+- SELL：价格走势处于明确的下跌趋势（例如跌破全部均线和支撑位）并且具有极大的信心时（HIGH信心），给出做空信号（做空开仓，不是平仓）
 - CLOSE：持仓存在且出现反转/触及止盈止损/动能衰竭
 - HOLD：信号冲突或无方向
 
